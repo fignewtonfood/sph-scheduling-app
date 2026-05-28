@@ -14159,6 +14159,34 @@
       "i1Email": "labissy@pdx.edu",
       "i2Email": "",
       "adminNotes": ""
+    },
+    {
+      "id": "x1779999804113_gw84",
+      "term": "Summer26",
+      "prefix": "BSTA",
+      "courseNumber": "500",
+      "courseId": "BSTA_500",
+      "fullName": "BSTA - 500: Reading and Research in Biostatistics",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "5",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": ""
     }
   ]
 }
