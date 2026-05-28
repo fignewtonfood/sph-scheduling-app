@@ -431,7 +431,7 @@ async function loadData(){
 }
 
 async function ghFetch(){
-  const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json?ref=${GH.branch}`;
+  const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json?ref=${GH.branch}&t=${Date.now()}`;
   const h={'Accept':'application/vnd.github.v3+json'};
   if(GH.token)h['Authorization']='token '+GH.token;
   const r=await fetch(url,{headers:h});
