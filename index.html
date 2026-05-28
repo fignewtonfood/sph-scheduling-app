@@ -139,6 +139,7 @@ td{padding:7px 10px;vertical-align:middle}
     <span id="admin-badge">ADMIN</span>
     <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Pull latest data from GitHub">↺ Sync</button>
     <span id="save-status">Ready</span>
+    <span id="last-saved" style="font-size:11px;color:#64748B;margin-left:4px"></span>
   </header>
   <nav>
     <button class="active" data-view="schedule" id="nav-schedule">📅 Schedule</button>
@@ -355,12 +356,13 @@ td{padding:7px 10px;vertical-align:middle}
         <div><label>GitHub Owner / Org</label><input id="gh-owner" placeholder="e.g. ohsu-psu-sph"></div>
         <div><label>Repository Name</label><input id="gh-repo" placeholder="e.g. scheduling-app"></div>
         <div><label>Branch</label><input id="gh-branch" value="main"></div>
-        <div><label>Personal Access Token (PAT)</label><input id="gh-token" type="password" placeholder="ghp_…"><div class="gh-hint">Needs <em>repo</em> scope. Stored in sessionStorage only — clears when tab closes.</div></div>
+        <div><label>Personal Access Token (PAT)</label><input id="gh-token" type="password" placeholder="ghp_…"><div class="gh-hint">Needs <em>repo</em> scope. Token is saved locally in your browser.</div></div>
         <div id="gh-status" class="ghs"></div>
       </div>
     </div>
     <div class="mft">
       <button class="btn btn-s" data-close="mo-gh">Cancel</button>
+      <button class="btn btn-s" id="btn-gh-forget" style="color:var(--red);border-color:var(--red);margin-right:auto">🗑 Forget saved token</button>
       <button class="btn btn-s" id="btn-gh-test">Test Connection</button>
       <button class="btn btn-p" id="btn-gh-enable">Enable Admin Mode</button>
     </div>
@@ -418,7 +420,10 @@ function fillSel(id,items,vfn,lfn,blank){
 /* ─── DATA LOADING ─────────────────────────────────────────── */
 async function loadData(){
   setLM('Fetching schedule data…');
-  try{const sv=sessionStorage.getItem('sph_gh');if(sv){const c=JSON.parse(sv);Object.assign(GH,c);}}catch(e){}
+  try{
+    const sv=localStorage.getItem('sph_gh')||sessionStorage.getItem('sph_gh');
+    if(sv){const c=JSON.parse(sv);Object.assign(GH,c);}
+  }catch(e){}
   if(GH.owner&&GH.repo){
     try{DB=await ghFetch();setLM('');return;}catch(e){console.warn('GH fetch failed',e);}
   }
@@ -432,13 +437,18 @@ async function loadData(){
 }
 
 async function ghFetch(){
-  const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json?ref=${GH.branch}`;
+  const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json?ref=${GH.branch}&t=${Date.now()}`;
   const h={'Accept':'application/vnd.github.v3+json'};
   if(GH.token)h['Authorization']='token '+GH.token;
   const r=await fetch(url,{headers:h});
   if(!r.ok)throw new Error('GH '+r.status);
   const m=await r.json();
   GH.sha=m.sha;
+  // fetch commit timestamp for this file
+  try{
+    const cr=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/commits?path=data.json&per_page=1&t=${Date.now()}`,{headers:h});
+    if(cr.ok){const cj=await cr.json();if(cj[0]){const d=new Date(cj[0].commit.committer.date);setLastSaved(d);}}
+  }catch(e){}
   return JSON.parse(atob(m.content.replace(/\n/g,'')));
 }
 
@@ -454,11 +464,25 @@ async function ghSave(){
     if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
     const res=await r.json();
     GH.sha=res.content.sha;
+    setLastSaved(new Date());
     setSS('● Saved to GitHub');
   }catch(e){setSS('⚠ Save failed: '+e.message);console.error(e);}
 }
 
 const setSS=msg=>{$('save-status').textContent=msg;};
+function setLastSaved(date){
+  const el=$('last-saved');if(!el)return;
+  const now=new Date();
+  const diff=Math.round((now-date)/1000);
+  let label;
+  if(diff<5)label='just now';
+  else if(diff<60)label=diff+'s ago';
+  else if(diff<3600)label=Math.round(diff/60)+'m ago';
+  else label=date.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  el.textContent='· last saved '+label;
+  clearInterval(el._tick);
+  el._tick=setInterval(()=>setLastSaved(date),30000);
+}
 
 async function syncData(){
   setSS('Syncing…');
@@ -953,10 +977,21 @@ async function testGH(){
     else{s.className='ghs err';s.textContent=`✗ ${res.status}: ${res.statusText}`;}
   }catch(e){s.className='ghs err';s.textContent='✗ Network error: '+e.message;}
 }
+function forgetGH(){
+  try{localStorage.removeItem('sph_gh');sessionStorage.removeItem('sph_gh');}catch(e){}
+  GH={owner:'',repo:'',branch:'main',token:'',sha:''};
+  setv('gh-owner','');setv('gh-repo','');setv('gh-branch','main');setv('gh-token','');
+  const s=$('gh-status');s.className='ghs ok';s.textContent='Saved token cleared.';
+  disableAdmin();
+}
 function saveGH(){
   GH.owner=val('gh-owner').trim();GH.repo=val('gh-repo').trim();
   GH.branch=val('gh-branch').trim()||'main';GH.token=val('gh-token').trim();
-  try{sessionStorage.setItem('sph_gh',JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch}));}catch(e){}
+  try{
+    const cfg=JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch,token:GH.token});
+    localStorage.setItem('sph_gh',cfg);
+    sessionStorage.setItem('sph_gh',cfg);
+  }catch(e){}
   enableAdmin();closeM('mo-gh');
 }
 
@@ -1026,6 +1061,7 @@ function wireEvents(){
   $('btn-save-inst').addEventListener('click',saveInst);
   $('btn-del-inst').addEventListener('click',delInst);
   // GH modal
+  $('btn-gh-forget').addEventListener('click',forgetGH);
   $('btn-gh-test').addEventListener('click',testGH);
   $('btn-gh-enable').addEventListener('click',saveGH);
   // Confirm modal
@@ -1048,7 +1084,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
   wireEvents();
   await loadData();
   initDropdowns();
-  disableAdmin();
+  if(GH.token&&GH.owner&&GH.repo){enableAdmin();}
+  else{disableAdmin();}
   renderAll();
   setLM('');
   setSS('Ready');
