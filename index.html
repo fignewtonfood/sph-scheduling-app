@@ -272,7 +272,7 @@ td{padding:7px 10px;vertical-align:middle}
       <div><label>I1 Email</label><input id="om-e1" type="email"></div>
       <div><label>I2 Email</label><input id="om-e2" type="email"></div>
       <div class="fsec">Schedule</div>
-      <div class="span-2 pot-row" id="pot-row">
+      <div class="s2 pot-row" id="pot-row">
         <label>Part of Term (Summer only)</label>
         <div style="display:flex;gap:8px;align-items:center">
           <select id="om-pot" style="width:160px">
@@ -650,9 +650,13 @@ function renderSched(){
     const i2=o.instructor2?` &amp; ${esc(o.instructor2)}`:'';
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button></td>`:'';
     const ro=isAdmin?'':'readonly';
+    const hasNotes=!!(o.adminNotes&&String(o.adminNotes).trim());
+    const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
+    const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
+    const potBadge=(o.term==='Summer26'&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     h+=`<tr>
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${esc(o.fullName)}</td><td>${esc(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality)}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -882,7 +886,7 @@ function openOM(id){
 }
 function togglePotRow(){
   const isSummer = val('om-term')==='Summer26';
-  document.getElementById('pot-row').style.display = isSummer ? '' : 'none';
+  document.getElementById('pot-row').style.display = isSummer ? 'block' : 'none';
 }
 function autoEmail(n){const i=DB.instructors.find(x=>x.displayName===val('om-i'+n));if(i)setv('om-e'+n,i.email??'');}
 function saveOff(){
