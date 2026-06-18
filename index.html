@@ -1314,7 +1314,12 @@ function wireEvents(){
     const b=e.target.closest('[data-close]');
     if(b){closeM(b.dataset.close);if(b.dataset.close==='mo-cfm')cfmCb=null;}
   });
+  // Backdrop click dismisses lightweight modals, but NOT the data-entry edit
+  // modals (offering/course/instructor) — those persist until Cancel/Save/Delete
+  // so a stray outside click never discards unsaved edits.
+  const noBackdropClose=new Set(['mo-off','mo-crs','mo-inst']);
   document.querySelectorAll('.mo').forEach(o=>{
+    if(noBackdropClose.has(o.id))return;
     o.addEventListener('click',e=>{if(e.target===o){o.classList.remove('open');if(o.id==='mo-cfm')cfmCb=null;}});
   });
 }
