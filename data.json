@@ -14185,6 +14185,35 @@
       "i2Email": "",
       "adminNotes": "",
       "pot": ""
+    },
+    {
+      "id": "x1781801378008_sjju",
+      "term": "Summer26",
+      "prefix": "BSTA",
+      "courseNumber": "509PE",
+      "courseId": "BSTA_509PE",
+      "fullName": "BSTA - 509PE: Practice Experience",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "20",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": "",
+      "pot": ""
     }
   ]
 }
