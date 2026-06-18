@@ -14215,5 +14215,22 @@
       "adminNotes": "",
       "pot": ""
     }
-  ]
+  ],
+  "lists": {
+    "days": [
+      "M",
+      "T",
+      "W",
+      "R",
+      "F",
+      "M, W",
+      "T, R",
+      "M, W, F",
+      "By arrangement",
+      "Dept arranged",
+      "OL - Sakai",
+      "Online",
+      "TBD"
+    ]
+  }
 }
