@@ -2785,6 +2785,20 @@
       "grugb": "GR",
       "fteExempt": "No",
       "maxCap": ""
+    },
+    {
+      "id": "BSTA_500_b",
+      "prefix": "BSTA",
+      "number": "500",
+      "number2": "",
+      "title": "test",
+      "fullName": "BSTA - 500: test",
+      "credits": "2",
+      "pnp": "P/NP",
+      "permission": "No",
+      "grugb": "GR",
+      "fteExempt": "No",
+      "maxCap": "10"
     }
   ],
   "instructors": [
@@ -14156,6 +14170,34 @@
       "i2Email": "",
       "adminNotes": "",
       "pot": ""
+    },
+    {
+      "id": "x1781801040631_p867",
+      "term": "Summer26",
+      "prefix": "BSTA",
+      "courseNumber": "500",
+      "courseId": "BSTA_500_b",
+      "fullName": "BSTA - 500: test",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "10",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": ""
     }
   ]
 }
