@@ -2812,7 +2812,7 @@
       "permission": "No",
       "grugb": "UG",
       "fteExempt": "No",
-      "maxCap": ""
+      "maxCap": "100"
     }
   ],
   "instructors": [
