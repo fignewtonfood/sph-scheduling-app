@@ -4031,8 +4031,8 @@
       "instructor2": "Park B.",
       "i1Email": "fur@ohsu.edu",
       "i2Email": "parkb@ohsu.edu",
-      "days": "",
-      "time": "1400-1650",
+      "days": "M, W",
+      "time": "1350-1640",
       "modality": "Online (sync)",
       "roomed": "OHSU Online",
       "roomNumber": "",
@@ -4046,8 +4046,8 @@
       "restrictOhsu": "",
       "restrictPsu": "",
       "psuText": "",
-      "adminNotes": "test",
-      "pot": ""
+      "adminNotes": "Note from Pat-Rochelle approved a change to the start and end time so BSTA 517 and HSMP 573 no longer overlap",
+      "pot": "D08"
     },
     {
       "id": "off_5",
