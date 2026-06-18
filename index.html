@@ -30,6 +30,7 @@ nav button{padding:0 18px;height:44px;border:none;background:none;font-size:13px
 nav button:hover{color:var(--teal);background:var(--lgray)}
 nav button.active{color:var(--navy);border-bottom-color:var(--teal);font-weight:600}
 #btn-admin-toggle{margin-left:auto;font-size:11px;color:#64748B;padding:0 14px}
+#btn-lists{font-size:11px;color:#64748B;padding:0 14px}
 
 /* ═══ VIEWS ══════════════════════════════════════════════════ */
 main{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -163,6 +164,7 @@ td{padding:7px 10px;vertical-align:middle}
     <button data-view="catalog"     id="nav-catalog">📚 Catalog</button>
     <button data-view="instructors" id="nav-instructors">👤 Instructors</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
+    <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
   </nav>
   <main>
 
@@ -340,7 +342,7 @@ td{padding:7px 10px;vertical-align:middle}
         </div>
         <div class="fhint">Summer term only. Printed in schedule as "POT XXX".</div>
       </div>
-      <div><label>Days</label><select id="om-days"><option value="">–</option><option>M</option><option>T</option><option>W</option><option>R</option><option>F</option><option>M, W</option><option>T, R</option><option>M, W, F</option><option>By arrangement</option><option>OL - Sakai</option><option>Online</option><option>TBD</option></select></div>
+      <div><label>Days</label><select id="om-days"></select></div>
       <div><label>Start / End Time</label><input id="om-time" placeholder="e.g. 1300-1450"></div>
       <div><label>Modality</label><select id="om-mod"><option value="">–</option><option>Online (async)</option><option>Online (sync)</option><option>Hybrid</option><option>In-Person</option><option>By Arrangement</option><option>Dept Arranged</option><option>Attend Anywhere</option></select></div>
       <div><label>Where Roomed</label><input id="om-room" placeholder="e.g. OHSU, PSU, Online"></div>
@@ -414,6 +416,25 @@ td{padding:7px 10px;vertical-align:middle}
       <button class="btn btn-s" data-close="mo-inst">Cancel</button>
       <button class="btn btn-d btn-sm" id="btn-del-inst" style="display:none">Delete</button>
       <button class="btn btn-p" id="btn-save-inst">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- LISTS EDITOR MODAL -->
+<div class="mo" id="mo-lists">
+  <div class="modal med">
+    <div class="mhd"><h3>Edit Dropdown Lists</h3><button class="mx" data-close="mo-lists">×</button></div>
+    <div class="mb"><div class="fg">
+      <div class="s2"><label>List</label><select id="ld-key"></select></div>
+      <div class="s2"><label>Options — one per line, in display order</label>
+        <textarea id="ld-items" rows="12" style="font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea>
+        <div class="fhint" id="ld-hint"></div>
+      </div>
+    </div></div>
+    <div class="mft">
+      <button class="btn btn-s" id="btn-ld-default" style="margin-right:auto">↺ Restore defaults</button>
+      <button class="btn btn-s" data-close="mo-lists">Cancel</button>
+      <button class="btn btn-p" id="btn-ld-save">Save</button>
     </div>
   </div>
 </div>
@@ -867,7 +888,7 @@ function openOM(id){
   if(id){
     const o=DB.offerings.find(x=>x.id===id);if(!o)return;
     setv('om-term',o.term);setv('om-course',o.courseId);setv('om-i1',o.instructor1);setv('om-i2',o.instructor2);
-    setv('om-e1',o.i1Email);setv('om-e2',o.i2Email);setv('om-days',o.days);setv('om-time',o.time);
+    setv('om-e1',o.i1Email);setv('om-e2',o.i2Email);ensureOpt('om-days',o.days);setv('om-days',o.days);setv('om-time',o.time);
     setv('om-mod',o.modality);setv('om-room',o.roomed);setv('om-roomn',o.roomNumber);setv('om-grugb',o.grugb);
     setv('om-cap',o.totalCap);setv('om-enroll',o.enrollment);setv('om-o1',o.ohsuCap1);setv('om-o2',o.ohsuCap2);
     setv('om-p1',o.psuCap1);setv('om-p2',o.psuCap2);setv('om-ro',o.restrictOhsu);setv('om-rp',o.restrictPsu);
@@ -1097,6 +1118,81 @@ function saveGH(){
 /* ─── RENDER ALL ────────────────────────────────────────────── */
 function renderAll(){renderSched();}
 
+/* ─── EDITABLE LISTS ────────────────────────────────────────── */
+// Registry of admin-editable dropdown lists. To add a field later:
+// add an entry with its default options and a re-render hook.
+const LISTS={
+  days:{
+    label:'Days (offering modal)',
+    defaults:['M','T','W','R','F','M, W','T, R','M, W, F','By arrangement','OL - Sakai','Online','TBD'],
+    apply(){populateSelect('om-days',getList('days'),true);}
+  }
+};
+function getList(key){
+  const ov=DB.lists&&DB.lists[key];
+  return (Array.isArray(ov)&&ov.length)?ov.slice():LISTS[key].defaults.slice();
+}
+function populateSelect(id,items,blankFirst){
+  const s=$(id);if(!s)return;
+  const cur=s.value;
+  s.innerHTML='';
+  if(blankFirst){const o=document.createElement('option');o.value='';o.textContent='–';s.appendChild(o);}
+  items.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
+  // preserve current selection if still valid, even if not in the list (e.g. legacy value)
+  if(cur&&items.includes(cur))s.value=cur;
+  else if(cur&&!blankFirst)s.value=cur;
+}
+function applyAllLists(){Object.values(LISTS).forEach(l=>l.apply());}
+// Inject a temporary option so a stored value removed from the list still
+// displays and round-trips on save (prevents silent data loss).
+function ensureOpt(id,v){
+  if(v==null||v==='')return;
+  const s=$(id);if(!s)return;
+  if(![...s.options].some(o=>o.value===v)){
+    const o=document.createElement('option');o.value=v;o.textContent=v+' (current)';s.appendChild(o);
+  }
+}
+
+let ldKey=null;
+function openLists(){
+  const sel=$('ld-key');sel.innerHTML='';
+  Object.entries(LISTS).forEach(([k,l])=>{
+    const o=document.createElement('option');o.value=k;o.textContent=l.label;sel.appendChild(o);
+  });
+  ldKey=sel.value=Object.keys(LISTS)[0];
+  loadListIntoEditor(ldKey);
+  $('mo-lists').classList.add('open');
+}
+function loadListIntoEditor(key){
+  ldKey=key;
+  $('ld-items').value=getList(key).join('\n');
+  const isCustom=Array.isArray(DB.lists&&DB.lists[key]);
+  $('ld-hint').textContent=isCustom?'Customized — differs from defaults.':'Using built-in defaults.';
+}
+function saveListEdits(){
+  const items=$('ld-items').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  // de-dup, preserve order
+  const seen=new Set(),clean=[];
+  items.forEach(v=>{if(!seen.has(v)){seen.add(v);clean.push(v);}});
+  if(!DB.lists)DB.lists={};
+  // store as override only if it differs from defaults; otherwise drop the key
+  if(JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults))delete DB.lists[ldKey];
+  else DB.lists[ldKey]=clean;
+  triggerSave();
+  LISTS[ldKey].apply();
+  closeM('mo-lists');
+  setSS('List saved');
+}
+function restoreListDefaults(){
+  showCfm('Restore defaults?','Reset "'+LISTS[ldKey].label+'" to the built-in list? Your custom entries for it will be discarded.',()=>{
+    if(DB.lists)delete DB.lists[ldKey];
+    $('ld-items').value=LISTS[ldKey].defaults.join('\n');
+    $('ld-hint').textContent='Using built-in defaults.';
+    triggerSave();
+    LISTS[ldKey].apply();
+  });
+}
+
 /* ─── INIT DROPDOWNS ────────────────────────────────────────── */
 function initDropdowns(){
   PROGS.forEach(p=>{['f-pfx','g-pfx','cc-pfx'].forEach(id=>{
@@ -1108,6 +1204,7 @@ function initDropdowns(){
     const s=$(id);if(!s)return;
     cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;s.appendChild(o);});
   });
+  applyAllLists();
 }
 
 /* ─── EVENT WIRING ──────────────────────────────────────────── */
@@ -1117,6 +1214,10 @@ function wireEvents(){
     if(isAdmin)showCfm('Exit admin mode?','Switch back to read-only view?',()=>disableAdmin());
     else openGH();
   });
+  $('btn-lists').addEventListener('click',openLists);
+  $('ld-key').addEventListener('change',e=>loadListIntoEditor(e.target.value));
+  $('btn-ld-save').addEventListener('click',saveListEdits);
+  $('btn-ld-default').addEventListener('click',restoreListDefaults);
   // Schedule
   ['f-term','f-pfx','f-mod'].forEach(id=>$(id).addEventListener('change',renderSched));
   $('f-q').addEventListener('input',renderSched);
