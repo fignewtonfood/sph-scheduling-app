@@ -14235,6 +14235,18 @@
       "Online",
       "TBD",
       "R 8/20/25, 8/27/25, 9/3/25"
+    ],
+    "prefixes": [
+      "BSTA",
+      "CPH",
+      "EPI",
+      "ESHH",
+      "HSMP",
+      "IPE",
+      "PE",
+      "PHE",
+      "PUBH",
+      "UNST"
     ]
   }
 }
