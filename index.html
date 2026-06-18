@@ -483,7 +483,21 @@ const TC={Summer26:'b-su',Fall26:'b-fa',Winter27:'b-wi',Spring27:'b-sp'};
 const PROGS=['BSTA','CPH','EPI','ESHH','HSMP','IPE','PHE','UNST'];
 const FTE_CATS=new Set(['OHSU Primary','Staff','Other','NPS','OHSU Adjunct']);
 const GDAYS=['MON','TUE','WED','THU','FRI'];
-const DMAP={M:[0],T:[1],W:[2],R:[3],F:[4],'M, W':[0,2],'T, R':[1,3],'M, W, F':[0,2,4]};
+// Single-token → Gantt column (Mon–Fri). The Gantt parses each offering's
+// `days` string token-by-token, so any combination of these tokens renders —
+// new Days dropdown options work automatically as long as they use these tokens.
+// Tokens not listed here (Online, By arrangement, Sa, Su, OL-…, TBD, notes) are
+// ignored, so those offerings correctly contribute no campus-day bars.
+const DAY_COL={M:0,T:1,W:2,R:3,F:4};
+function parseDays(s){
+  if(!s)return[];
+  const cols=[];
+  String(s).split(',').forEach(piece=>{
+    const m=piece.trim().match(/^([MTWRF])\b/);
+    if(m){const c=DAY_COL[m[1]];if(!cols.includes(c))cols.push(c);}
+  });
+  return cols;
+}
 const GCOLS=['#2E75B6','#375623','#C55A11','#7B2C8C','#C00000','#1F6B75','#7F4F24','#2F5496','#4F6228','#843C0C'];
 
 /* ─── STATE ────────────────────────────────────────────────── */
@@ -712,7 +726,7 @@ function renderGantt(){
   html+='</div></div>';
   const totals=Array(5).fill(0).map(()=>new Array(N).fill(0));
   courses.sort((a,b)=>a.prefix.localeCompare(b.prefix)).forEach((o,ci)=>{
-    const slots=t2s(o.time),days=DMAP[o.days]??[];
+    const slots=t2s(o.time),days=parseDays(o.days);
     const color=GCOLS[ci%GCOLS.length];
     const enroll=parseInt(o.enrollment)||0,cap=parseInt(o.totalCap)||0;
     const disp=enroll>0?enroll:(cap>0?'('+cap+')':'');
