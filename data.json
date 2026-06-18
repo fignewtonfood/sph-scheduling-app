@@ -14156,6 +14156,35 @@
       "i2Email": "",
       "adminNotes": "",
       "pot": ""
+    },
+    {
+      "id": "x1781801373479_epvq",
+      "term": "Summer26",
+      "prefix": "BSTA",
+      "courseNumber": "502IP",
+      "courseId": "BSTA_502IP",
+      "fullName": "BSTA - 502IP: Integrative Project",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "55",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": "",
+      "pot": ""
     }
   ]
 }
