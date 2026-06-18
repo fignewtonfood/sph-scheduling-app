@@ -174,6 +174,7 @@ td{padding:7px 10px;vertical-align:middle}
         <select id="f-term"><option value="">All Terms</option><option value="Summer26">Summer 2026</option><option value="Fall26">Fall 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select>
         <select id="f-pfx"><option value="">All Programs</option></select>
         <select id="f-mod"><option value="">All Modalities</option><option>Online (async)</option><option>Online (sync)</option><option>Hybrid</option><option>In-Person</option><option>By Arrangement</option><option>Dept Arranged</option><option>Attend Anywhere</option></select>
+        <select id="f-level"><option value="">All Levels</option><option value="GR">Graduate</option><option value="UG">Undergraduate</option></select>
         <input type="search" id="f-q" placeholder="Search…" style="width:200px">
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-off" style="display:none">+ Add Offering</button>
@@ -655,11 +656,12 @@ function switchView(name){
 
 /* ─── SCHEDULE ──────────────────────────────────────────────── */
 function renderSched(){
-  const term=val('f-term'),pfx=val('f-pfx'),mod=val('f-mod'),q=val('f-q').toLowerCase();
+  const term=val('f-term'),pfx=val('f-pfx'),mod=val('f-mod'),lvl=val('f-level'),q=val('f-q').toLowerCase();
   let rows=DB.offerings.filter(o=>{
     if(term&&o.term!==term)return false;
     if(pfx&&o.prefix!==pfx)return false;
     if(mod&&o.modality!==mod)return false;
+    if(lvl){const g=o.grugb||'';if(lvl==='GR'&&!(g==='GR'||g==='B'))return false;if(lvl==='UG'&&!(g==='UG'||g==='B'))return false;}
     if(q&&!(`${o.fullName} ${o.instructor1} ${o.instructor2}`).toLowerCase().includes(q))return false;
     return true;
   });
@@ -1251,7 +1253,7 @@ function wireEvents(){
   $('btn-ld-save').addEventListener('click',saveListEdits);
   $('btn-ld-default').addEventListener('click',restoreListDefaults);
   // Schedule
-  ['f-term','f-pfx','f-mod'].forEach(id=>$(id).addEventListener('change',renderSched));
+  ['f-term','f-pfx','f-mod','f-level'].forEach(id=>$(id).addEventListener('change',renderSched));
   $('f-q').addEventListener('input',renderSched);
   $('btn-add-off').addEventListener('click',()=>openOM(null));
   $('btn-exp-sched').addEventListener('click',expSched);
