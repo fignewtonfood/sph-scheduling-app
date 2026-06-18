@@ -765,11 +765,11 @@ function renderCht(){
   let html=`<table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="background:#1F3864;color:white">
     <th style="${sty};text-align:left;min-width:160px">Instructor</th><th style="${sty};text-align:left">Category</th>`;
   TERMS.forEach(t=>{html+=`<th style="${sty};min-width:160px">${esc(TL[t])}</th><th style="${sty}">Eff CR</th><th style="${sty}">Raw CR</th>`;});
-  PROGS.forEach(p=>html+=`<th style="${sty}">${p}</th>`);
+  progs().forEach(p=>html+=`<th style="${sty}">${p}</th>`);
   html+=`<th style="${sty}">GR CR</th><th style="${sty}">UG CR</th><th style="${sty}">Ann Raw</th><th style="${sty}">Ann Eff</th><th style="${sty};background:#C00000">FTE</th></tr></thead><tbody>`;
   instrs.forEach((inst,ri)=>{
     const bg=ri%2?'#F8FAFC':'#FFF';
-    let aR=0,aE=0;const pc={};PROGS.forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
+    let aR=0,aE=0;const pc={};progs().forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
     let tds='';
     TERMS.forEach(t=>{
       const offs=inst.terms[t];let tR=0,tE=0;
@@ -786,7 +786,7 @@ function renderCht(){
           +`<td style="text-align:center;font-weight:700;padding:5px 10px;background:${eb};vertical-align:top">${tE>0?tE.toFixed(1):''}</td>`
           +`<td style="text-align:center;padding:5px 10px;background:${bg};vertical-align:top">${tR||''}</td>`;
     });
-    const pcells=PROGS.map(p=>`<td style="text-align:center;padding:5px 10px;background:${bg}">${pc[p]||''}</td>`).join('');
+    const pcells=progs().map(p=>`<td style="text-align:center;padding:5px 10px;background:${bg}">${pc[p]||''}</td>`).join('');
     const fte=(FTE_CATS.has(inst.cat)&&aE)?(aE*0.03).toFixed(3):'';
     const fteBg=fte&&parseFloat(fte)>0.5?'#FEE2E2':bg;
     html+=`<tr><td style="padding:5px 10px;font-weight:600;vertical-align:top;background:${bg}">${esc(inst.name)}</td>`
@@ -936,7 +936,7 @@ function openCM(id){
   $('btn-del-crs').style.display=id?'inline-flex':'none';
   if(id){
     const c=DB.courses.find(x=>x.id===id);if(!c)return;
-    setv('cm-pfx',c.prefix);setv('cm-num',c.number);setv('cm-num2',c.number2);setv('cm-cr',c.credits);
+    ensureOpt('cm-pfx',c.prefix);setv('cm-pfx',c.prefix);setv('cm-num',c.number);setv('cm-num2',c.number2);setv('cm-cr',c.credits);
     setv('cm-ttl',c.title);setv('cm-pnp',c.pnp);setv('cm-perm',c.permission);setv('cm-grugb',c.grugb);
     setv('cm-fte',c.fteExempt);setv('cm-cap',c.maxCap);
     const tk=['su','fa','wi','sp'];
@@ -1063,16 +1063,16 @@ function expCht(){
     const two=!!(o.instructor1&&o.instructor2),cr=crMap[o.courseId]??0,ex=fteEx.has(o.courseId);
     agg[inst].terms[o.term].push({course:o.fullName,cr,ex,two,pfx:o.prefix,grugb:o.grugb??'GR',eff:ex?0:(two?cr/2:cr)});
   });});
-  const rows=[['Instructor','Category',...TERMS.map(t=>TL[t]+' Courses'),...TERMS.map(t=>TL[t]+' Eff CR'),...TERMS.map(t=>TL[t]+' Raw CR'),...PROGS.map(p=>p+' CR'),'GR CR','UG CR','Ann Raw CR','Ann Eff CR','FTE']];
+  const rows=[['Instructor','Category',...TERMS.map(t=>TL[t]+' Courses'),...TERMS.map(t=>TL[t]+' Eff CR'),...TERMS.map(t=>TL[t]+' Raw CR'),...progs().map(p=>p+" CR"),'GR CR','UG CR','Ann Raw CR','Ann Eff CR','FTE']];
   Object.values(agg).sort((a,b)=>a.name.localeCompare(b.name)).forEach(inst=>{
-    let aR=0,aE=0;const pc={};PROGS.forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
+    let aR=0,aE=0;const pc={};progs().forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
     const tc=[],ec=[],rc=[];
     TERMS.forEach(t=>{const offs=inst.terms[t];let tR=0,tE=0;
       tc.push(offs.map(o=>o.course.split(':').slice(-1)[0].trim()+(o.ex?' [EX]':'')+(o.two?' [2I]':'')).join('; '));
       offs.forEach(o=>{tR+=o.cr;tE+=o.eff;pc[o.pfx]=(pc[o.pfx]||0)+o.cr;gc[o.grugb]=(gc[o.grugb]||0)+o.cr;});
       ec.push(tE||'');rc.push(tR||'');aR+=tR;aE+=tE;});
     const fte=(FTE_CATS.has(inst.cat)&&aE)?(aE*0.03).toFixed(3):'';
-    rows.push([inst.name,inst.cat,...tc,...ec,...rc,...PROGS.map(p=>pc[p]||''),gc.GR||'',gc.UG||'',aR||'',aE?aE.toFixed(1):'',fte]);
+    rows.push([inst.name,inst.cat,...tc,...ec,...rc,...progs().map(p=>pc[p]||""),gc.GR||'',gc.UG||'',aR||'',aE?aE.toFixed(1):'',fte]);
   });
   dlCSV(rows,'SPH_CHTool_AY26-27.csv');
 }
@@ -1132,17 +1132,33 @@ const LISTS={
     label:'Days (offering modal)',
     defaults:['M','T','W','R','F','M, W','T, R','M, W, F','By arrangement','OL - Sakai','Online','TBD'],
     apply(){populateSelect('om-days',getList('days'),true);}
+  },
+  prefixes:{
+    label:'Program prefixes',
+    defaults:PROGS.slice(),
+    apply(){
+      const items=getList('prefixes');
+      populateSelect('f-pfx',items,true,'All Programs');
+      populateSelect('g-pfx',items,true,'All Programs');
+      populateSelect('cc-pfx',items,true,'All Programs');
+      populateSelect('cm-pfx',items,false);
+      // CHTool columns and Catalog grouping depend on the prefix list — refresh them.
+      try{renderCht();}catch(e){}
+      try{renderCat();}catch(e){}
+    }
   }
 };
+// Live prefix list (falls back to PROGS defaults) for reports and aggregation.
+function progs(){return getList('prefixes');}
 function getList(key){
   const ov=DB.lists&&DB.lists[key];
   return (Array.isArray(ov)&&ov.length)?ov.slice():LISTS[key].defaults.slice();
 }
-function populateSelect(id,items,blankFirst){
+function populateSelect(id,items,blankFirst,blankLabel){
   const s=$(id);if(!s)return;
   const cur=s.value;
   s.innerHTML='';
-  if(blankFirst){const o=document.createElement('option');o.value='';o.textContent='–';s.appendChild(o);}
+  if(blankFirst){const o=document.createElement('option');o.value='';o.textContent=blankLabel||'–';s.appendChild(o);}
   items.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
   // preserve current selection if still valid, even if not in the list (e.g. legacy value)
   if(cur&&items.includes(cur))s.value=cur;
@@ -1201,10 +1217,6 @@ function restoreListDefaults(){
 
 /* ─── INIT DROPDOWNS ────────────────────────────────────────── */
 function initDropdowns(){
-  PROGS.forEach(p=>{['f-pfx','g-pfx','cc-pfx'].forEach(id=>{
-    const s=$(id);if(!s)return;
-    const o=document.createElement('option');o.value=p;o.textContent=p;s.appendChild(o);
-  });});
   const cats=[...new Set(DB.instructors.map(i=>i.category).filter(Boolean))].sort();
   ['c-cat','i-cat'].forEach(id=>{
     const s=$(id);if(!s)return;
