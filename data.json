@@ -2813,6 +2813,20 @@
       "grugb": "UG",
       "fteExempt": "No",
       "maxCap": "100"
+    },
+    {
+      "id": "PHE_510",
+      "prefix": "PHE",
+      "number": "510",
+      "number2": "",
+      "title": "Environment & Health",
+      "fullName": "PHE - 510: Environment & Health",
+      "credits": "3",
+      "pnp": "A-F",
+      "permission": "No",
+      "grugb": "GR",
+      "fteExempt": "No",
+      "maxCap": "10"
     }
   ],
   "instructors": [
@@ -14313,6 +14327,34 @@
       "psuText": "",
       "adminNotes": "",
       "pot": "D08"
+    },
+    {
+      "id": "x1781803348196_tgeh",
+      "term": "Summer26",
+      "prefix": "PHE",
+      "courseNumber": "510",
+      "courseId": "PHE_510",
+      "fullName": "PHE - 510: Environment & Health",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "10",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": ""
     }
   ],
   "lists": {
