@@ -525,7 +525,7 @@ function fillSel(id,items,vfn,lfn,blank){
 async function loadData(){
   setLM('Fetching schedule data…');
   try{
-    const sv=localStorage.getItem('sph_gh')||sessionStorage.getItem('sph_gh');
+    const sv=localStorage.getItem('sph_gh');
     if(sv){const c=JSON.parse(sv);Object.assign(GH,c);}
   }catch(e){}
   if(GH.owner&&GH.repo){
@@ -1110,7 +1110,6 @@ function saveGH(){
   try{
     const cfg=JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch,token:GH.token});
     localStorage.setItem('sph_gh',cfg);
-    sessionStorage.setItem('sph_gh',cfg);
   }catch(e){}
   enableAdmin();closeM('mo-gh');
 }

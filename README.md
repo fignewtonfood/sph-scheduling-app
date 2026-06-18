@@ -22,7 +22,8 @@ Single-page scheduling tool for the OHSU-PSU School of Public Health.
 1. Open the app → click **🔐 Admin** in the nav bar
 2. Enter your GitHub Owner, Repo Name, Branch, and a Personal Access Token
    - Token needs `repo` scope (or `public_repo` for public repos)
-   - The token is stored in **sessionStorage only** and clears when you close the tab
+   - The token is stored in **localStorage** and persists across sessions, so admins don't re-enter it each time
+   - On a shared or public computer, click **🔐 Admin → Forget** before leaving to clear the stored token
 3. Click **Enable Admin Mode**
 4. All edits auto-save to `data.json` in your repo ~1.5 seconds after a change
 
