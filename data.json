@@ -2827,6 +2827,20 @@
       "grugb": "GR",
       "fteExempt": "No",
       "maxCap": "10"
+    },
+    {
+      "id": "PUBH_523",
+      "prefix": "PUBH",
+      "number": "523",
+      "number2": "623",
+      "title": "Introduction to R",
+      "fullName": "PUBH - 523/623: Introduction to R",
+      "credits": "1",
+      "pnp": "A-F",
+      "permission": "No",
+      "grugb": "GR",
+      "fteExempt": "No",
+      "maxCap": "25"
     }
   ],
   "instructors": [
@@ -14356,6 +14370,34 @@
       "psuText": "",
       "adminNotes": "Dual degree students for PUBH 533",
       "pot": "I10"
+    },
+    {
+      "id": "x1781803449612_kv2e",
+      "term": "Summer26",
+      "prefix": "PUBH",
+      "courseNumber": "523",
+      "courseId": "PUBH_523",
+      "fullName": "PUBH - 523/623: Introduction to R",
+      "instructor1": "",
+      "instructor2": "",
+      "totalCap": "25",
+      "ohsuCap1": "",
+      "ohsuCap2": "",
+      "psuCap1": "",
+      "psuCap2": "",
+      "days": "",
+      "time": "",
+      "restrictOhsu": "",
+      "restrictPsu": "",
+      "roomed": "",
+      "roomNumber": "",
+      "psuText": "",
+      "modality": "",
+      "grugb": "GR",
+      "enrollment": "",
+      "i1Email": "",
+      "i2Email": "",
+      "adminNotes": ""
     }
   ],
   "lists": {
