@@ -2785,20 +2785,6 @@
       "grugb": "GR",
       "fteExempt": "No",
       "maxCap": ""
-    },
-    {
-      "id": "BSTA_500_b",
-      "prefix": "BSTA",
-      "number": "500",
-      "number2": "",
-      "title": "test",
-      "fullName": "BSTA - 500: test",
-      "credits": "2",
-      "pnp": "P/NP",
-      "permission": "No",
-      "grugb": "GR",
-      "fteExempt": "No",
-      "maxCap": "10"
     }
   ],
   "instructors": [
