@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SPH Course Scheduling — AY 2026-27</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 /* ═══ TOKENS ═════════════════════════════════════════════════ */
 :root {
@@ -107,7 +106,7 @@ td{padding:7px 10px;vertical-align:middle}
 .cbody{padding:24px 20px 12px;font-size:14px;line-height:1.5}
 .cdetail{margin-top:8px;font-size:12px;color:var(--dgray)}
 
-
+/* GH modal */
 #ghb{display:flex;flex-direction:column;gap:14px}
 #ghb label{font-size:12px;font-weight:600;color:var(--dgray);display:block;margin-bottom:4px}
 #ghb input{width:100%}
@@ -154,7 +153,7 @@ td{padding:7px 10px;vertical-align:middle}
     <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026–27</div></div>
     <div class="hsp"></div>
     <span id="admin-badge">ADMIN</span>
-    <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Reload latest data from the database">↺ Sync</button>
+    <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Pull latest data from GitHub">↺ Sync</button>
     <span id="save-status">Ready</span>
     <span id="last-saved" style="font-size:11px;color:#64748B;margin-left:4px"></span>
   </header>
@@ -453,43 +452,30 @@ td{padding:7px 10px;vertical-align:middle}
   </div>
 </div>
 
+<!-- GITHUB CONFIG MODAL -->
+<div class="mo" id="mo-gh">
+  <div class="modal med">
+    <div class="mhd"><h3>GitHub Configuration</h3><button class="mx" data-close="mo-gh">×</button></div>
+    <div class="mb">
+      <div id="ghb">
+        <div><label>GitHub Owner / Org</label><input id="gh-owner" placeholder="e.g. ohsu-psu-sph"></div>
+        <div><label>Repository Name</label><input id="gh-repo" placeholder="e.g. scheduling-app"></div>
+        <div><label>Branch</label><input id="gh-branch" value="main"></div>
+        <div><label>Personal Access Token (PAT)</label><input id="gh-token" type="password" placeholder="ghp_…"><div class="gh-hint">Needs <em>repo</em> scope. Token is saved locally in your browser.</div></div>
+        <div id="gh-status" class="ghs"></div>
+      </div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-s" data-close="mo-gh">Cancel</button>
+      <button class="btn btn-s" id="btn-gh-forget" style="color:var(--red);border-color:var(--red);margin-right:auto">🗑 Forget saved token</button>
+      <button class="btn btn-s" id="btn-gh-test">Test Connection</button>
+      <button class="btn btn-p" id="btn-gh-enable">Enable Admin Mode</button>
+    </div>
+  </div>
+</div>
 
 <script>
 'use strict';
-
-/* ════════════════════════════════════════════════════════════════════
-   SUPABASE CONFIG  ← FILL THESE IN
-   Project URL + anon (publishable) key from:
-   Supabase dashboard → Project Settings → API.
-   The anon key is safe to ship in client code; RLS protects the data.
-   ════════════════════════════════════════════════════════════════════ */
-const SUPABASE_URL      = 'https://YOUR-PROJECT-REF.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
-
-/* "Remember me on this device": when true (default) the Supabase session is
-   persisted in localStorage so admins stay signed in across reloads. When the
-   user opts into incognito/shared-computer mode, we use in-memory only — no
-   storage writes, session forgotten when the tab closes. The choice itself is
-   the one thing we DO persist (a single tiny flag), so the checkbox remembers
-   its state; flip it off and the flag is removed. */
-const PERSIST_FLAG='sph_persist';
-function wantPersist(){
-  try{return localStorage.getItem(PERSIST_FLAG)!=='0';}catch(e){return true;}
-}
-let sb=null;
-function initSupabase(){
-  const persist=wantPersist();
-  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
-    auth:{
-      persistSession:persist,
-      autoRefreshToken:persist,
-      storage:persist?window.localStorage:undefined, // undefined ⇒ in-memory
-      storageKey:'sph_auth'
-    }
-  });
-  return sb;
-}
-
 /* ─── CONSTANTS ────────────────────────────────────────────── */
 const TERMS=['Summer26','Fall26','Winter27','Spring27'];
 const TL={Summer26:'Summer 2026',Fall26:'Fall 2026',Winter27:'Winter 2027',Spring27:'Spring 2027'};
@@ -517,6 +503,7 @@ const GCOLS=['#2E75B6','#375623','#C55A11','#7B2C8C','#C00000','#1F6B75','#7F4F2
 
 /* ─── STATE ────────────────────────────────────────────────── */
 let DB={courses:[],instructors:[],offerings:[]};
+let GH={owner:'',repo:'',branch:'main',token:'',sha:''};
 let isAdmin=false;
 let sortCol='term', sortDir=1;
 let eidO=null, eidC=null, eidI=null;
@@ -549,108 +536,59 @@ function fillSel(id,items,vfn,lfn,blank){
   items.forEach(x=>{const o=document.createElement('option');o.value=vfn(x);o.textContent=lfn(x);s.appendChild(o);});
 }
 
-/* ─── DATA LOADING (Supabase, reads-first) ─────────────────────
-   Queries the four sources and reshapes them back into the legacy
-   DB={courses,instructors,offerings} shape so all existing rendering
-   (Schedule, Gantt, CHTool, Catalog, Instructors) works unchanged.
-   Instructor names come from faculty_directory (NOT faculty) — anon
-   cannot read the faculty table. Offerings keep referencing instructors
-   by displayName string, rebuilt here from faculty_id. */
+/* ─── DATA LOADING ─────────────────────────────────────────── */
 async function loadData(){
-  setLM('Connecting…');
-  if(!sb)initSupabase();
   setLM('Fetching schedule data…');
-
-  const [cR,oR,mR,dR,lR]=await Promise.all([
-    sb.from('courses').select('*'),
-    sb.from('offerings').select('*'),
-    sb.from('instructor_meta').select('*'),
-    sb.from('faculty_directory').select('*'),
-    sb.from('app_lists').select('*')
-  ]);
-  for(const r of [cR,oR,mR,dR,lR]){
-    if(r.error){setLM('');setSS('⚠ Load failed: '+r.error.message);throw r.error;}
+  try{
+    const sv=localStorage.getItem('sph_gh');
+    if(sv){const c=JSON.parse(sv);Object.assign(GH,c);}
+  }catch(e){}
+  if(GH.owner&&GH.repo){
+    try{DB=await ghFetch();setLM('');return;}catch(e){console.warn('GH fetch failed',e);}
   }
-  // Editable lists (Days, Program prefixes) — overrides keyed by list_key.
-  const lists={};
-  (lR.data||[]).forEach(row=>{lists[row.list_key]=row.items;});
-
-  // faculty_directory: id → {first,last,placeholder}
-  const dir={};
-  dR.data.forEach(f=>{dir[f.id]={first:f.first_name||'',last:f.last_name||'',ph:!!f.is_placeholder};});
-
-  // Build instructors[] from instructor_meta ⨝ faculty_directory.
-  // displayName uses the same "Last F." convention, with 2-letter
-  // disambiguation when last + first-initial collide.
-  const metaById={};
-  mR.data.forEach(m=>{metaById[m.faculty_id]=m;});
-  // first pass: count last+firstInitial collisions to decide disambiguation length
-  const initialCount={};
-  mR.data.forEach(m=>{const d=dir[m.faculty_id];if(!d)return;
-    const k=(d.last+'|'+(d.first[0]||'')).toLowerCase();initialCount[k]=(initialCount[k]||0)+1;});
-  function dispName(d){
-    if(!d)return '';
-    const fi=d.first?d.first[0]:'';
-    const k=(d.last+'|'+fi).toLowerCase();
-    const suffix=(initialCount[k]>1 && d.first)?d.first.slice(0,2):fi;
-    return (d.last+' '+suffix+'.').trim();
-  }
-  const instById={}; // faculty_id → reshaped instructor (for offering lookup)
-  const instructors=mR.data.map(m=>{
-    const d=dir[m.faculty_id]||{first:'',last:'',ph:false};
-    const rec={
-      id:m.faculty_id, facultyId:m.faculty_id,
-      firstName:d.first, lastName:d.last,
-      displayName:dispName(d),
-      category:m.fte_category||'', role:m.role||'',
-      email:'', eid:'', isPlaceholder:d.ph
-    };
-    instById[m.faculty_id]=rec;
-    return rec;
-  });
-
-  // courses: map DB columns back to legacy keys the renderers use.
-  const courses=cR.data.map(c=>({
-    id:c.course_code, _uuid:c.id,
-    prefix:c.prefix, number:c.number, number2:c.number2||'',
-    title:c.title, fullName:c.full_name,
-    credits:c.credits||'', pnp:c.grading||'',
-    permission:c.permission_required?'Yes':'No',
-    grugb:c.level||'',
-    fteExempt:c.fte_exempt?'Yes':'No',
-    maxCap:(c.max_cap??'')+''
-  }));
-  const courseByUuid={}; courses.forEach(c=>{courseByUuid[c._uuid]=c;});
-
-  // offerings: translate FK instructor ids back to displayName strings,
-  // course_id → course_code, ints → strings (legacy renderers expect strings).
-  const S=v=>v==null?'':String(v);
-  const offerings=oR.data.map(o=>{
-    const c=courseByUuid[o.course_id]||{};
-    const i1=o.instructor1_id?instById[o.instructor1_id]:null;
-    const i2=o.instructor2_id?instById[o.instructor2_id]:null;
-    return {
-      id:o.source_id||o.id, _uuid:o.id,
-      term:o.term, prefix:c.prefix||'', courseNumber:c.number||'',
-      courseId:c.id||'', fullName:c.fullName||'',
-      instructor1:i1?i1.displayName:'', instructor2:i2?i2.displayName:'',
-      i1Email:'', i2Email:'',
-      days:S(o.days), time:S(o.time), modality:S(o.modality),
-      roomed:S(o.roomed), roomNumber:S(o.room_number),
-      grugb:S(o.level),
-      totalCap:S(o.total_cap), enrollment:S(o.enrollment),
-      ohsuCap1:S(o.ohsu_cap1), ohsuCap2:S(o.ohsu_cap2),
-      psuCap1:S(o.psu_cap1), psuCap2:S(o.psu_cap2),
-      restrictOhsu:S(o.restrict_ohsu), restrictPsu:S(o.restrict_psu),
-      psuText:S(o.psu_text), adminNotes:S(o.admin_notes), pot:S(o.pot)
-    };
-  });
-
-  DB={courses,instructors,offerings,lists};
+  try{
+    const r=await fetch('./data.json');
+    if(!r.ok)throw new Error();
+    DB=await r.json();setLM('');return;
+  }catch(e){console.warn('data.json failed, using SEED_DATA');}
+  DB=JSON.parse(JSON.stringify(SEED_DATA));
   setLM('');
 }
 
-const setSS=msg=>{const e=$('save-status');if(e)e.textContent=msg;};
+async function ghFetch(){
+  const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json?ref=${GH.branch}&t=${Date.now()}`;
+  const h={'Accept':'application/vnd.github.v3+json'};
+  if(GH.token)h['Authorization']='token '+GH.token;
+  const r=await fetch(url,{headers:h});
+  if(!r.ok)throw new Error('GH '+r.status);
+  const m=await r.json();
+  GH.sha=m.sha;
+  // fetch commit timestamp for this file
+  try{
+    const cr=await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/commits?path=data.json&per_page=1&t=${Date.now()}`,{headers:h});
+    if(cr.ok){const cj=await cr.json();if(cj[0]){const d=new Date(cj[0].commit.committer.date);setLastSaved(d);}}
+  }catch(e){}
+  return JSON.parse(atob(m.content.replace(/\n/g,'')));
+}
+
+async function ghSave(){
+  if(!GH.token){setSS('⚠ No token');return;}
+  setSS('Saving…');
+  try{
+    const content=btoa(unescape(encodeURIComponent(JSON.stringify(DB,null,2))));
+    const url=`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data.json`;
+    const body={message:'SPH update '+new Date().toISOString(),content,branch:GH.branch};
+    if(GH.sha)body.sha=GH.sha;
+    const r=await fetch(url,{method:'PUT',headers:{'Authorization':'token '+GH.token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){const e=await r.json();throw new Error(e.message||r.status);}
+    const res=await r.json();
+    GH.sha=res.content.sha;
+    setLastSaved(new Date());
+    setSS('● Saved to GitHub');
+  }catch(e){setSS('⚠ Save failed: '+e.message);console.error(e);}
+}
+
+const setSS=msg=>{$('save-status').textContent=msg;};
 function setLastSaved(date){
   const el=$('last-saved');if(!el)return;
   const now=new Date();
@@ -668,7 +606,8 @@ function setLastSaved(date){
 async function syncData(){
   setSS('Syncing…');
   try{
-    await loadData();
+    if(GH.owner&&GH.repo){DB=await ghFetch();}
+    else{const r=await fetch('./data.json?t='+Date.now());if(!r.ok)throw new Error();DB=await r.json();}
     renderAll();
     const tab=document.querySelector('.view.active');
     if(tab){
@@ -679,7 +618,7 @@ async function syncData(){
       if(name==='instructors')renderInst();
     }
     setSS('● Synced');
-    setTimeout(()=>setSS(isAdmin?'Admin mode':'Read-only'),2000);
+    setTimeout(()=>setSS(isAdmin?'Admin mode — edits save to GitHub':'Read-only'),2000);
   }catch(e){setSS('⚠ Sync failed: '+e.message);}
 }
 function setLM(msg){
@@ -693,7 +632,7 @@ function enableAdmin(){
   $('admin-badge').classList.add('on');
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='');
   document.querySelectorAll('thead th.admin-only').forEach(e=>e.style.display='');
-  setSS('Admin mode');
+  setSS('Admin mode — edits save to GitHub');
 }
 function disableAdmin(){
   isAdmin=false;
@@ -764,15 +703,7 @@ function renderSched(){
   $('sched-tb').innerHTML=h;
 }
 function sortSched(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1;}renderSched();}
-function updateEnroll(id,v){
-  const o=DB.offerings.find(x=>x.id===id);if(!o)return;
-  o.enrollment=v;                       // optimistic local update
-  if(o._uuid){
-    const s=String(v).trim();
-    const iv=s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);
-    sbSave(sb.from('offerings').update({enrollment:iv}).eq('id',o._uuid),'● Enrollment saved');
-  }
-}
+function updateEnroll(id,v){const o=DB.offerings.find(x=>x.id===id);if(o){o.enrollment=v;triggerSave();}}
 
 /* ─── GANTT ─────────────────────────────────────────────────── */
 function renderGantt(){
@@ -923,30 +854,22 @@ function dotCell(cid,pfx,term){
 function toggleOff(cid,pfx,term){
   const ex=DB.offerings.find(o=>o.courseId===cid&&o.term===term);
   if(ex){
-    const removeIt=async()=>{
-      const uuid=ex._uuid;
-      DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
-      renderCat();renderSched();
-      if(uuid)await sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering removed');
-    };
     if(ex.instructor1||ex.days||ex.modality){
-      showCfm('Remove offering?',`Remove ${pfx} from ${TL[term]}? Scheduling details will be lost.`,removeIt);
-      return;
+      showCfm('Remove offering?',`Remove ${pfx} from ${TL[term]}? Scheduling details will be lost.`,()=>{
+        DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
+        triggerSave();renderCat();renderSched();
+      });return;
     }
-    removeIt();
+    DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
   }else{
     const c=DB.courses.find(x=>x.id===cid);if(!c)return;
     const nd=c.number2?`${c.number}/${c.number2}`:c.number;
-    const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
-      instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
+    DB.offerings.push({id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
+      instructor1:'',instructor2:'',totalCap:c.maxCap??'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
       days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',
-      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:''};
-    sb.from('offerings').insert(offRow(off)).select().single().then(({data:oi,error})=>{
-      if(error){setSS('⚠ Not added: '+error.message);return;}
-      off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
-      renderCat();renderSched();setSS('● Offering added');
-    });
+      modality:'',grugb:c.grugb??'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:''});
   }
+  triggerSave();renderCat();renderSched();
 }
 
 /* ─── INSTRUCTORS ───────────────────────────────────────────── */
@@ -1003,78 +926,23 @@ function togglePotRow(){
   document.getElementById('pot-row').style.display = isSummer ? 'block' : 'none';
 }
 function autoEmail(n){const i=DB.instructors.find(x=>x.displayName===val('om-i'+n));if(i)setv('om-e'+n,i.email??'');}
-/* ─── SUPABASE WRITE HELPERS ───────────────────────────────────
-   Optimistic pattern: callers mutate the in-memory DB and re-render
-   immediately, then fire the write. sbSave reverts to server truth
-   (reloadAll) if the write fails — e.g. RLS denial for a non-admin or
-   an expired session — so the UI never drifts from the database. */
-function renderActive(){
-  const tab=document.querySelector('.view.active');if(!tab)return;
-  const n=tab.id.replace('view-','');
-  if(n==='gantt')renderGantt();else if(n==='chtool')renderCht();
-  else if(n==='catalog')renderCat();else if(n==='instructors')renderInst();
-}
-async function reloadAll(){
-  try{await loadData();renderAll();renderActive();}
-  catch(e){setSS('⚠ Reload failed: '+e.message);}
-}
-async function sbSave(promise,okMsg){
-  try{
-    const {data,error}=await promise;
-    if(error){setSS('⚠ Not saved: '+(error.message||'permission denied')+' — reverting');await reloadAll();return null;}
-    setSS(okMsg||'● Saved');return data===undefined?true:data;
-  }catch(e){setSS('⚠ Not saved: '+e.message+' — reverting');await reloadAll();return null;}
-}
-const _facIdByDisp=dn=>{if(!dn)return null;const i=DB.instructors.find(x=>x.displayName===dn);return i?i.facultyId:null;};
-const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:null;};
-/* legacy offering object → offerings table columns */
-function offRow(d){
-  const I=v=>{const s=String(v??'').trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
-  const T=v=>{const s=(v==null?'':String(v)).trim();return s===''?null:s;};
-  return {source_id:d.id, course_id:_courseUuid(d.courseId),
-    instructor1_id:_facIdByDisp(d.instructor1), instructor2_id:_facIdByDisp(d.instructor2),
-    term:d.term, level:T(d.grugb), days:T(d.days), time:T(d.time), modality:T(d.modality),
-    roomed:T(d.roomed), room_number:T(d.roomNumber), total_cap:I(d.totalCap), enrollment:I(d.enrollment),
-    ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
-    restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
-    admin_notes:T(d.adminNotes), pot:T(d.pot)};
-}
-
 function saveOff(){
   const cid=val('om-course');const c=DB.courses.find(x=>x.id===cid);
   if(!cid||!c){alert('Please select a course.');return;}
   const nd=c.number2?`${c.number}/${c.number2}`:c.number;
   const data={id:eidO??genid(),term:val('om-term'),prefix:c.prefix,courseNumber:c.number,courseId:cid,
     fullName:`${c.prefix} - ${nd}: ${c.title}`,instructor1:val('om-i1'),instructor2:val('om-i2'),
-    i1Email:'',i2Email:'',days:val('om-days'),time:val('om-time'),modality:val('om-mod'),
+    i1Email:val('om-e1'),i2Email:val('om-e2'),days:val('om-days'),time:val('om-time'),modality:val('om-mod'),
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:val('om-grugb'),totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
-  const row=offRow(data);
-  if(eidO){
-    // Existing → optimistic local update + render, then write by UUID.
-    const idx=DB.offerings.findIndex(x=>x.id===eidO);
-    const uuid=idx>=0?DB.offerings[idx]._uuid:null;
-    data._uuid=uuid;
-    if(idx>=0)DB.offerings[idx]=data;
-    closeM('mo-off');renderSched();
-    if(!uuid){setSS('⚠ Missing row id — reverting');reloadAll();return;}
-    sbSave(sb.from('offerings').update(row).eq('id',uuid),'● Offering saved');
-  }else{
-    // New → insert, then add locally with the returned UUID.
-    setSS('Saving…');
-    sb.from('offerings').insert(row).select().single().then(({data:ins,error})=>{
-      if(error){setSS('⚠ Not added: '+error.message);return;}
-      data._uuid=ins.id;data.id=ins.source_id||ins.id;
-      DB.offerings.push(data);closeM('mo-off');renderSched();setSS('● Offering added');
-    });
-  }
+  if(eidO){const i=DB.offerings.findIndex(x=>x.id===eidO);if(i>=0)DB.offerings[i]=data;}
+  else DB.offerings.push(data);
+  triggerSave();closeM('mo-off');renderSched();
 }
 function delOff(){showCfm('Delete offering?','This will permanently remove this offering from the schedule.',()=>{
-  const o=DB.offerings.find(x=>x.id===eidO);const uuid=o?o._uuid:null;
-  DB.offerings=DB.offerings.filter(x=>x.id!==eidO);closeM('mo-off');renderSched();
-  if(uuid)sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering deleted');
+  DB.offerings=DB.offerings.filter(x=>x.id!==eidO);triggerSave();closeM('mo-off');renderSched();
 });}
 
 /* ─── COURSE MODAL ──────────────────────────────────────────── */
@@ -1095,81 +963,41 @@ function openCM(id){
   }
   openM('mo-crs');
 }
-/* legacy course object → courses table columns */
-function crsRow(d){
-  const I=v=>{const s=String(v??'').trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
-  const T=v=>{const s=(v==null?'':String(v)).trim();return s===''?null:s;};
-  const B=v=>String(v??'').trim().toLowerCase()==='yes';
-  return {course_code:d.id, prefix:d.prefix, number:d.number, number2:T(d.number2),
-    title:d.title, full_name:d.fullName, credits:T(d.credits), grading:T(d.pnp),
-    level:T(d.grugb), permission_required:B(d.permission), fte_exempt:B(d.fteExempt),
-    max_cap:I(d.maxCap)};
-}
-async function saveCrs(){
+function saveCrs(){
   const pfx=val('cm-pfx'),num=val('cm-num').trim();
   if(!num){alert('Course number required.');return;}
   const num2=val('cm-num2').trim(),title=val('cm-ttl').trim();
   const nd=num2?`${num}/${num2}`:num;
-  let id=eidC, uuid=null;
-  if(id){const ex=DB.courses.find(c=>c.id===id);uuid=ex?ex._uuid:null;}
+  let id=eidC;
   if(!id){
-    // New course: collision-safe code from prefix_number (distinct courses
-    // can share a prefix+number).
+    // New course: derive id from prefix_number, but never collide with an
+    // existing course (distinct courses can share a prefix+number).
     const base=`${pfx}_${num}`;id=base;
     const letters='bcdefghijklmnop';let k=0;
     while(DB.courses.some(c=>c.id===id)){id=base+'_'+letters[k++];}
   }
-  const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
+  const data={id,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
     credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),maxCap:val('cm-cap')};
-  const row=crsRow(data);
-
-  // Persist the course first — its UUID is needed for any new term offerings.
-  if(eidC&&uuid){
-    const idx=DB.courses.findIndex(x=>x.id===eidC);if(idx>=0)DB.courses[idx]=data;
-    const r=await sbSave(sb.from('courses').update(row).eq('id',uuid),'● Course saved');
-    if(r===null)return;                       // reverted on error
-  }else{
-    const {data:ins,error}=await sb.from('courses').insert(row).select().single();
-    if(error){setSS('⚠ Not added: '+error.message);return;}
-    data._uuid=ins.id;data.id=ins.course_code;uuid=ins.id;id=ins.course_code;
-    DB.courses.push(data);
-  }
-
-  // Term checkboxes → add / remove offerings (offRow resolves course_id from
-  // DB, which now contains this course with its _uuid).
+  if(eidC){const i=DB.courses.findIndex(x=>x.id===eidC);if(i>=0)DB.courses[i]=data;}
+  else DB.courses.push(data);
   const tk={Summer26:'cm-su',Fall26:'cm-fa',Winter27:'cm-wi',Spring27:'cm-sp'};
-  for(const t of TERMS){
-    const on=chk(tk[t]);
-    const ex=DB.offerings.find(o=>o.courseId===id&&o.term===t);
-    if(on&&!ex){
-      const off={id:genid(),term:t,prefix:pfx,courseNumber:num,courseId:id,fullName:`${pfx} - ${nd}: ${title}`,
-        instructor1:'',instructor2:'',totalCap:val('cm-cap')||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
-        days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',modality:'',
-        grugb:val('cm-grugb')||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:''};
-      const {data:oi,error:oe}=await sb.from('offerings').insert(offRow(off)).select().single();
-      if(oe){setSS('⚠ Term add failed: '+oe.message);}else{off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);}
-    }else if(!on&&ex&&!(ex.instructor1||ex.days||ex.modality)){
-      const u2=ex._uuid;
+  TERMS.forEach(t=>{
+    const on=chk(tk[t]),ex=DB.offerings.find(o=>o.courseId===id&&o.term===t);
+    if(on&&!ex){DB.offerings.push({id:genid(),term:t,prefix:pfx,courseNumber:num,courseId:id,fullName:`${pfx} - ${nd}: ${title}`,
+      instructor1:'',instructor2:'',totalCap:val('cm-cap')??'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
+      days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',modality:'',
+      grugb:val('cm-grugb')??'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:''});}
+    else if(!on&&ex&&!(ex.instructor1||ex.days||ex.modality)){
       DB.offerings=DB.offerings.filter(o=>!(o.courseId===id&&o.term===t));
-      if(u2){const {error:de}=await sb.from('offerings').delete().eq('id',u2);if(de)setSS('⚠ Term remove failed: '+de.message);}
     }
-  }
-  closeM('mo-crs');renderCat();renderSched();setSS('● Course saved');
+  });
+  triggerSave();closeM('mo-crs');renderCat();renderSched();
 }
 function delCrs(){
-  const c=DB.courses.find(x=>x.id===eidC);const uuid=c?c._uuid:null;
-  showCfm('Delete course?',`Delete "${c?c.fullName:'this course'}" and all its offerings?`,async()=>{
-    closeM('mo-crs');
-    DB.courses=DB.courses.filter(x=>x.id!==eidC);
-    DB.offerings=DB.offerings.filter(x=>x.courseId!==eidC);
-    renderCat();renderSched();
-    if(uuid){
-      // Offerings first — courses FK is ON DELETE RESTRICT.
-      const r1=await sb.from('offerings').delete().eq('course_id',uuid);
-      const r2=r1.error?r1:await sb.from('courses').delete().eq('id',uuid);
-      if(r1.error||r2.error){setSS('⚠ Delete failed: '+((r1.error||r2.error).message)+' — reverting');await reloadAll();return;}
-      setSS('● Course deleted');
-    }
+  const c=DB.courses.find(x=>x.id===eidC);
+  showCfm('Delete course?',`Delete "${c?c.fullName:'this course'}" and all its offerings?`,()=>{
+    DB.courses=DB.courses.filter(x=>x.id!==eidC);DB.offerings=DB.offerings.filter(x=>x.courseId!==eidC);
+    triggerSave();closeM('mo-crs');renderCat();renderSched();
   });
 }
 
@@ -1184,16 +1012,6 @@ function openIM(id){
     setv('im-cat',i.category);setv('im-role',i.role);setv('im-email',i.email);
     setv('im-email2',i.email2??'');setv('im-eid',i.eid??'');
   }else{['im-last','im-first','im-dn','im-role','im-email','im-email2','im-eid'].forEach(f=>setv(f,''));}
-  // Name/email/EID live in the shared faculty record (faculty app owns them).
-  // Editing existing → those are read-only here; only category + role persist.
-  // Adding new → name + email feed the create_instructor RPC; email2/EID are
-  // faculty-app fields, so they stay read-only. Display name is always derived.
-  const lockIdentity=!!id;
-  [['im-last',lockIdentity],['im-first',lockIdentity],['im-email',lockIdentity],
-   ['im-dn',true],['im-email2',true],['im-eid',true]].forEach(([f,lock])=>{
-    const el=$(f);if(!el)return;el.readOnly=lock;el.style.opacity=lock?'0.55':'1';
-    el.title=lock?'Managed in the faculty app':'';
-  });
   openM('mo-inst');
 }
 function autoDN(){
@@ -1206,41 +1024,16 @@ function autoDN(){
 }
 function saveInst(){
   const last=val('im-last').trim();if(!last){alert('Last name required.');return;}
-  const cat=val('im-cat'),role=val('im-role').trim();
-  if(eidI){
-    // Existing → scheduling app writes only instructor_meta (category + role).
-    const idx=DB.instructors.findIndex(x=>x.id===eidI);
-    if(idx>=0){DB.instructors[idx].category=cat;DB.instructors[idx].role=role;}
-    closeM('mo-inst');renderInst();
-    sbSave(sb.from('instructor_meta').update({fte_category:cat||null,role:role||null}).eq('faculty_id',eidI),'● Instructor saved');
-  }else{
-    // New → create faculty + instructor_meta atomically via the RPC.
-    const first=val('im-first').trim(),email=val('im-email').trim();
-    const dupe=DB.instructors.find(x=>x.lastName.toLowerCase()===last.toLowerCase()&&(x.firstName||'').toLowerCase()===first.toLowerCase());
-    const doCreate=async()=>{
-      setSS('Adding instructor…');
-      const {data:newId,error}=await sb.rpc('create_instructor',
-        {p_first:first,p_last:last,p_email:email,p_fte_category:cat,p_role:role});
-      if(error){setSS('⚠ Not added: '+error.message);return;}
-      const dn=val('im-dn').trim()||(first?`${last} ${first[0]}.`:last);
-      DB.instructors.push({id:newId,facultyId:newId,lastName:last,firstName:first,displayName:dn,
-        category:cat,role:role,email:'',eid:'',isPlaceholder:false});
-      closeM('mo-inst');renderInst();setSS('● Instructor added');
-    };
-    if(dupe)showCfm('Possible duplicate',`An instructor named "${dupe.displayName}" already exists. Add another anyway?`,doCreate);
-    else doCreate();
-  }
+  const data={id:eidI??genid(),lastName:last,firstName:val('im-first').trim(),displayName:val('im-dn').trim()||last,
+    category:val('im-cat'),role:val('im-role').trim(),email:val('im-email').trim(),email2:val('im-email2').trim(),eid:val('im-eid').trim()};
+  if(eidI){const i=DB.instructors.findIndex(x=>x.id===eidI);if(i>=0)DB.instructors[i]=data;}
+  else DB.instructors.push(data);
+  triggerSave();closeM('mo-inst');renderInst();
 }
 function delInst(){
   const i=DB.instructors.find(x=>x.id===eidI);
-  const assigned=DB.offerings.filter(o=>i&&(o.instructor1===i.displayName||o.instructor2===i.displayName)).length;
-  if(assigned>0){
-    showCfm('Cannot remove',`"${i?i.displayName:'This instructor'}" is assigned to ${assigned} offering(s). Reassign those first.`,()=>{});
-    return;
-  }
-  showCfm('Remove from roster?',`Remove "${i?i.displayName:'this instructor'}" from the scheduling roster? Their faculty record is kept — only their scheduling instructor status is removed.`,()=>{
-    DB.instructors=DB.instructors.filter(x=>x.id!==eidI);closeM('mo-inst');renderInst();
-    sbSave(sb.from('instructor_meta').delete().eq('faculty_id',eidI),'● Removed from roster');
+  showCfm('Delete instructor?',`Delete "${i?i.displayName:'this instructor'}" from the roster?`,()=>{
+    DB.instructors=DB.instructors.filter(x=>x.id!==eidI);triggerSave();closeM('mo-inst');renderInst();
   });
 }
 
@@ -1252,16 +1045,18 @@ function showCfm(title,msg,onOk,detail){
 }
 
 /* ─── RESET ─────────────────────────────────────────────────── */
-function resetSeed(){showCfm('Reload data?','Discard unsaved view changes and reload the current data from the database?',async()=>{
-  try{await loadData();renderAll();setSS('Reloaded from database');}
-  catch(e){setSS('⚠ Reload failed: '+e.message);}
+function resetSeed(){showCfm('Reset to seed data?','Discard ALL changes and reload original AY 2026–27 data?',async()=>{
+  try{const r=await fetch('./data.json');if(r.ok)DB=await r.json();else DB=JSON.parse(JSON.stringify(SEED_DATA));}
+  catch(e){DB=JSON.parse(JSON.stringify(SEED_DATA));}
+  renderAll();setSS('Reset to seed');
 });}
 
 /* ─── SAVE TRIGGER ──────────────────────────────────────────── */
 let saveTimer=null;
 function triggerSave(){
-  // Reads-first: per-row writes to Supabase are wired in chunk 2.
-  setSS('⚠ Saving is wired in the next build step (reads-only for now)');
+  setSS('Saving…');clearTimeout(saveTimer);
+  if(GH.token&&GH.owner&&GH.repo)saveTimer=setTimeout(ghSave,1500);
+  else setSS('⚠ Not saved (no GitHub config)');
 }
 
 /* ─── CSV EXPORTS ───────────────────────────────────────────── */
@@ -1307,6 +1102,40 @@ function dlCSV(rows,fn){
 /* ─── MODAL HELPERS ─────────────────────────────────────────── */
 const openM=id=>$(id)?.classList.add('open');
 const closeM=id=>$(id)?.classList.remove('open');
+
+/* ─── GITHUB MODAL ──────────────────────────────────────────── */
+function openGH(){
+  setv('gh-owner',GH.owner);setv('gh-repo',GH.repo);
+  setv('gh-branch',GH.branch||'main');setv('gh-token',GH.token);
+  const s=$('gh-status');s.className='ghs';s.textContent='';
+  openM('mo-gh');
+}
+async function testGH(){
+  const o=val('gh-owner').trim(),r=val('gh-repo').trim(),t=val('gh-token').trim();
+  const s=$('gh-status');s.className='ghs';s.textContent='Testing…';
+  try{
+    const h={'Accept':'application/vnd.github.v3+json'};if(t)h['Authorization']='token '+t;
+    const res=await fetch(`https://api.github.com/repos/${o}/${r}/contents/data.json`,{headers:h});
+    if(res.ok){s.className='ghs ok';s.textContent='✓ Connection successful — data.json found.';}
+    else{s.className='ghs err';s.textContent=`✗ ${res.status}: ${res.statusText}`;}
+  }catch(e){s.className='ghs err';s.textContent='✗ Network error: '+e.message;}
+}
+function forgetGH(){
+  try{localStorage.removeItem('sph_gh');sessionStorage.removeItem('sph_gh');}catch(e){}
+  GH={owner:'',repo:'',branch:'main',token:'',sha:''};
+  setv('gh-owner','');setv('gh-repo','');setv('gh-branch','main');setv('gh-token','');
+  const s=$('gh-status');s.className='ghs ok';s.textContent='Saved token cleared.';
+  disableAdmin();
+}
+function saveGH(){
+  GH.owner=val('gh-owner').trim();GH.repo=val('gh-repo').trim();
+  GH.branch=val('gh-branch').trim()||'main';GH.token=val('gh-token').trim();
+  try{
+    const cfg=JSON.stringify({owner:GH.owner,repo:GH.repo,branch:GH.branch,token:GH.token});
+    localStorage.setItem('sph_gh',cfg);
+  }catch(e){}
+  enableAdmin();closeM('mo-gh');
+}
 
 /* ─── RENDER ALL ────────────────────────────────────────────── */
 function renderAll(){renderSched();}
@@ -1384,21 +1213,21 @@ function saveListEdits(){
   const seen=new Set(),clean=[];
   items.forEach(v=>{if(!seen.has(v)){seen.add(v);clean.push(v);}});
   if(!DB.lists)DB.lists={};
-  const isDefault=JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults);
-  if(isDefault)delete DB.lists[ldKey]; else DB.lists[ldKey]=clean;
+  // store as override only if it differs from defaults; otherwise drop the key
+  if(JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults))delete DB.lists[ldKey];
+  else DB.lists[ldKey]=clean;
+  triggerSave();
   LISTS[ldKey].apply();
   closeM('mo-lists');
-  // No row = use defaults; so a default-equal list is stored by DELETING the row.
-  if(isDefault)sbSave(sb.from('app_lists').delete().eq('list_key',ldKey),'● List reset to defaults');
-  else sbSave(sb.from('app_lists').upsert({list_key:ldKey,items:clean,updated_at:new Date().toISOString()}),'● List saved');
+  setSS('List saved');
 }
 function restoreListDefaults(){
   showCfm('Restore defaults?','Reset "'+LISTS[ldKey].label+'" to the built-in list? Your custom entries for it will be discarded.',()=>{
     if(DB.lists)delete DB.lists[ldKey];
     $('ld-items').value=LISTS[ldKey].defaults.join('\n');
     $('ld-hint').textContent='Using built-in defaults.';
+    triggerSave();
     LISTS[ldKey].apply();
-    sbSave(sb.from('app_lists').delete().eq('list_key',ldKey),'● Restored defaults');
   });
 }
 
@@ -1416,8 +1245,8 @@ function initDropdowns(){
 function wireEvents(){
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
   $('btn-admin-toggle').addEventListener('click',()=>{
-    if(isAdmin)showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
-    else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the top-right to enable admin');}}
+    if(isAdmin)showCfm('Exit admin mode?','Switch back to read-only view?',()=>disableAdmin());
+    else openGH();
   });
   $('btn-lists').addEventListener('click',openLists);
   $('ld-key').addEventListener('change',e=>loadListIntoEditor(e.target.value));
@@ -1471,6 +1300,10 @@ function wireEvents(){
   $('im-first').addEventListener('input',autoDN);
   $('btn-save-inst').addEventListener('click',saveInst);
   $('btn-del-inst').addEventListener('click',delInst);
+  // GH modal
+  $('btn-gh-forget').addEventListener('click',forgetGH);
+  $('btn-gh-test').addEventListener('click',testGH);
+  $('btn-gh-enable').addEventListener('click',saveGH);
   // Confirm modal
   $('btn-cfm-ok').addEventListener('click',()=>{
     closeM('mo-cfm');
@@ -1491,104 +1324,16 @@ function wireEvents(){
   });
 }
 
-/* ─── AUTH (Supabase magic link) ───────────────────────────────
-   Sign-in by emailed link. Admin status is read from app_access via the
-   self-read policy (is the signed-in user a 'scheduling' admin?). The
-   incognito/persist toggle controls whether the session survives reload. */
-async function refreshAdmin(){
-  if(!sb){disableAdmin();return;}
-  const {data:{session}}=await sb.auth.getSession();
-  if(!session){disableAdmin();updateAuthBar(null);return;}
-  // Am I a scheduling admin? Self-read on app_access (RLS: own rows only).
-  let admin=false;
-  try{
-    const {data,error}=await sb.from('app_access')
-      .select('level').eq('app','scheduling').maybeSingle();
-    if(!error && data && data.level==='admin')admin=true;
-  }catch(e){}
-  if(admin)enableAdmin(); else disableAdmin();
-  updateAuthBar(session.user, admin);
-}
-async function signInEmail(email){
-  if(!email){setSS('⚠ Enter an email');return;}
-  setSS('Sending sign-in link…');
-  const {error}=await sb.auth.signInWithOtp({
-    email, options:{emailRedirectTo:window.location.href}
-  });
-  setSS(error?('⚠ '+error.message):'✉ Check your email for the sign-in link');
-}
-async function signOut(){
-  if(sb)await sb.auth.signOut();
-  disableAdmin();updateAuthBar(null);setSS('Signed out');
-}
-function setPersist(on){
-  try{
-    if(on)localStorage.removeItem(PERSIST_FLAG);
-    else localStorage.setItem(PERSIST_FLAG,'0');
-  }catch(e){}
-  // Re-create the client under the new persistence mode for subsequent logins.
-  initSupabase();
-}
-
-/* Injected auth bar — avoids editing existing modal HTML for this chunk. */
-function buildAuthBar(){
-  if($('auth-bar'))return;
-  const bar=document.createElement('div');
-  bar.id='auth-bar';
-  bar.style.cssText='position:fixed;top:8px;right:10px;z-index:9999;background:#fff;'
-    +'border:1px solid #d0d0d0;border-radius:8px;padding:8px 10px;font:13px/1.4 system-ui,sans-serif;'
-    +'box-shadow:0 2px 8px rgba(0,0,0,.12);max-width:320px;';
-  bar.innerHTML=
-    '<div id="ab-out">'
-    +'<input id="ab-email" type="email" placeholder="you@ohsu.edu" '
-    +'style="width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:5px;font-size:13px">'
-    +' <button id="ab-signin" style="padding:4px 10px">Sign in</button>'
-    +'<label style="display:block;margin-top:6px;color:#555;font-size:12px">'
-    +'<input id="ab-persist" type="checkbox"> Remember me on this device</label>'
-    +'</div>'
-    +'<div id="ab-in" style="display:none">'
-    +'<span id="ab-who" style="color:#333"></span> '
-    +'<button id="ab-signout" style="padding:3px 9px;margin-left:6px">Sign out</button>'
-    +'</div>';
-  document.body.appendChild(bar);
-  $('ab-persist').checked=wantPersist();
-  $('ab-persist').addEventListener('change',e=>setPersist(e.target.checked));
-  $('ab-signin').addEventListener('click',()=>signInEmail(val('ab-email').trim()));
-  $('ab-email').addEventListener('keydown',e=>{if(e.key==='Enter')signInEmail(val('ab-email').trim());});
-  $('ab-signout').addEventListener('click',signOut);
-}
-function updateAuthBar(user,admin){
-  if(!$('auth-bar'))return;
-  const inB=$('ab-in'),outB=$('ab-out');
-  if(user){
-    outB.style.display='none';inB.style.display='';
-    $('ab-who').textContent=(user.email||'signed in')+(admin?' · scheduling admin':' · viewer');
-  }else{
-    outB.style.display='';inB.style.display='none';
-  }
-}
-
 /* ─── BOOTSTRAP ─────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded',async()=>{
   wireEvents();
-  initSupabase();
-  buildAuthBar();
-  // React to auth changes (magic-link return, sign-out, token refresh).
-  sb.auth.onAuthStateChange((_evt,_session)=>{refreshAdmin();});
-  try{
-    await loadData();
-  }catch(e){
-    setLM('');setSS('⚠ Could not load data — check Supabase URL/key and that RLS read policies are in place.');
-  }
+  await loadData();
   initDropdowns();
-  await refreshAdmin();        // sets admin/viewer based on session
+  if(GH.token&&GH.owner&&GH.repo){enableAdmin();}
+  else{disableAdmin();}
   renderAll();
   setLM('');
-  if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL)||SUPABASE_ANON_KEY.startsWith('YOUR-')){
-    setSS('⚠ Set SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file');
-  }else{
-    setSS(isAdmin?'Admin mode':'Read-only');
-  }
+  setSS('Ready');
 });
 
 /* ─── SEED DATA PLACEHOLDER ─────────────────────────────────── */
