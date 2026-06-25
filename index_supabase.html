@@ -484,8 +484,8 @@ td{padding:7px 10px;vertical-align:middle}
    Supabase dashboard → Project Settings → API.
    The anon key is safe to ship in client code; RLS protects the data.
    ════════════════════════════════════════════════════════════════════ */
-const SUPABASE_URL      = 'https://igusxvvnzdpoqwizcvke.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
+const SUPABASE_URL      = 'https://YOUR-PROJECT-REF.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
 
 /* "Remember me on this device": when true (default) the Supabase session is
    persisted in localStorage so admins stay signed in across reloads. When the
@@ -583,15 +583,19 @@ async function loadData(){
   if(!sb)initSupabase();
   setLM('Fetching schedule data…');
 
-  const [cR,oR,mR,dR]=await Promise.all([
+  const [cR,oR,mR,dR,lR]=await Promise.all([
     sb.from('courses').select('*'),
     sb.from('offerings').select('*'),
     sb.from('instructor_meta').select('*'),
-    sb.from('faculty_directory').select('*')
+    sb.from('faculty_directory').select('*'),
+    sb.from('app_lists').select('*')
   ]);
-  for(const r of [cR,oR,mR,dR]){
+  for(const r of [cR,oR,mR,dR,lR]){
     if(r.error){setLM('');setSS('⚠ Load failed: '+r.error.message);throw r.error;}
   }
+  // Editable lists (Days, Program prefixes) — overrides keyed by list_key.
+  const lists={};
+  (lR.data||[]).forEach(row=>{lists[row.list_key]=row.items;});
 
   // faculty_directory: id → {first,last,placeholder}
   const dir={};
@@ -664,7 +668,7 @@ async function loadData(){
     };
   });
 
-  DB={courses,instructors,offerings};
+  DB={courses,instructors,offerings,lists};
   setLM('');
 }
 
@@ -963,22 +967,30 @@ function dotCell(cid,pfx,term){
 function toggleOff(cid,pfx,term){
   const ex=DB.offerings.find(o=>o.courseId===cid&&o.term===term);
   if(ex){
+    const removeIt=async()=>{
+      const uuid=ex._uuid;
+      DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
+      renderCat();renderSched();
+      if(uuid)await sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering removed');
+    };
     if(ex.instructor1||ex.days||ex.modality){
-      showCfm('Remove offering?',`Remove ${pfx} from ${TL[term]}? Scheduling details will be lost.`,()=>{
-        DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
-        triggerSave();renderCat();renderSched();
-      });return;
+      showCfm('Remove offering?',`Remove ${pfx} from ${TL[term]}? Scheduling details will be lost.`,removeIt);
+      return;
     }
-    DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
+    removeIt();
   }else{
     const c=DB.courses.find(x=>x.id===cid);if(!c)return;
     const nd=c.number2?`${c.number}/${c.number2}`:c.number;
-    DB.offerings.push({id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
-      instructor1:'',instructor2:'',totalCap:c.maxCap??'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
+    const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
+      instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
       days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',
-      modality:'',grugb:c.grugb??'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:''});
+      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:''};
+    sb.from('offerings').insert(offRow(off)).select().single().then(({data:oi,error})=>{
+      if(error){setSS('⚠ Not added: '+error.message);return;}
+      off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
+      renderCat();renderSched();setSS('● Offering added');
+    });
   }
-  triggerSave();renderCat();renderSched();
 }
 
 /* ─── INSTRUCTORS ───────────────────────────────────────────── */
@@ -1216,6 +1228,16 @@ function openIM(id){
     setv('im-cat',i.category);setv('im-role',i.role);setv('im-email',i.email);
     setv('im-email2',i.email2??'');setv('im-eid',i.eid??'');
   }else{['im-last','im-first','im-dn','im-role','im-email','im-email2','im-eid'].forEach(f=>setv(f,''));}
+  // Name/email/EID live in the shared faculty record (faculty app owns them).
+  // Editing existing → those are read-only here; only category + role persist.
+  // Adding new → name + email feed the create_instructor RPC; email2/EID are
+  // faculty-app fields, so they stay read-only. Display name is always derived.
+  const lockIdentity=!!id;
+  [['im-last',lockIdentity],['im-first',lockIdentity],['im-email',lockIdentity],
+   ['im-dn',true],['im-email2',true],['im-eid',true]].forEach(([f,lock])=>{
+    const el=$(f);if(!el)return;el.readOnly=lock;el.style.opacity=lock?'0.55':'1';
+    el.title=lock?'Managed in the faculty app':'';
+  });
   openM('mo-inst');
 }
 function autoDN(){
@@ -1228,16 +1250,41 @@ function autoDN(){
 }
 function saveInst(){
   const last=val('im-last').trim();if(!last){alert('Last name required.');return;}
-  const data={id:eidI??genid(),lastName:last,firstName:val('im-first').trim(),displayName:val('im-dn').trim()||last,
-    category:val('im-cat'),role:val('im-role').trim(),email:val('im-email').trim(),email2:val('im-email2').trim(),eid:val('im-eid').trim()};
-  if(eidI){const i=DB.instructors.findIndex(x=>x.id===eidI);if(i>=0)DB.instructors[i]=data;}
-  else DB.instructors.push(data);
-  triggerSave();closeM('mo-inst');renderInst();
+  const cat=val('im-cat'),role=val('im-role').trim();
+  if(eidI){
+    // Existing → scheduling app writes only instructor_meta (category + role).
+    const idx=DB.instructors.findIndex(x=>x.id===eidI);
+    if(idx>=0){DB.instructors[idx].category=cat;DB.instructors[idx].role=role;}
+    closeM('mo-inst');renderInst();
+    sbSave(sb.from('instructor_meta').update({fte_category:cat||null,role:role||null}).eq('faculty_id',eidI),'● Instructor saved');
+  }else{
+    // New → create faculty + instructor_meta atomically via the RPC.
+    const first=val('im-first').trim(),email=val('im-email').trim();
+    const dupe=DB.instructors.find(x=>x.lastName.toLowerCase()===last.toLowerCase()&&(x.firstName||'').toLowerCase()===first.toLowerCase());
+    const doCreate=async()=>{
+      setSS('Adding instructor…');
+      const {data:newId,error}=await sb.rpc('create_instructor',
+        {p_first:first,p_last:last,p_email:email,p_fte_category:cat,p_role:role});
+      if(error){setSS('⚠ Not added: '+error.message);return;}
+      const dn=val('im-dn').trim()||(first?`${last} ${first[0]}.`:last);
+      DB.instructors.push({id:newId,facultyId:newId,lastName:last,firstName:first,displayName:dn,
+        category:cat,role:role,email:'',eid:'',isPlaceholder:false});
+      closeM('mo-inst');renderInst();setSS('● Instructor added');
+    };
+    if(dupe)showCfm('Possible duplicate',`An instructor named "${dupe.displayName}" already exists. Add another anyway?`,doCreate);
+    else doCreate();
+  }
 }
 function delInst(){
   const i=DB.instructors.find(x=>x.id===eidI);
-  showCfm('Delete instructor?',`Delete "${i?i.displayName:'this instructor'}" from the roster?`,()=>{
-    DB.instructors=DB.instructors.filter(x=>x.id!==eidI);triggerSave();closeM('mo-inst');renderInst();
+  const assigned=DB.offerings.filter(o=>i&&(o.instructor1===i.displayName||o.instructor2===i.displayName)).length;
+  if(assigned>0){
+    showCfm('Cannot remove',`"${i?i.displayName:'This instructor'}" is assigned to ${assigned} offering(s). Reassign those first.`,()=>{});
+    return;
+  }
+  showCfm('Remove from roster?',`Remove "${i?i.displayName:'this instructor'}" from the scheduling roster? Their faculty record is kept — only their scheduling instructor status is removed.`,()=>{
+    DB.instructors=DB.instructors.filter(x=>x.id!==eidI);closeM('mo-inst');renderInst();
+    sbSave(sb.from('instructor_meta').delete().eq('faculty_id',eidI),'● Removed from roster');
   });
 }
 
@@ -1415,21 +1462,21 @@ function saveListEdits(){
   const seen=new Set(),clean=[];
   items.forEach(v=>{if(!seen.has(v)){seen.add(v);clean.push(v);}});
   if(!DB.lists)DB.lists={};
-  // store as override only if it differs from defaults; otherwise drop the key
-  if(JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults))delete DB.lists[ldKey];
-  else DB.lists[ldKey]=clean;
-  triggerSave();
+  const isDefault=JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults);
+  if(isDefault)delete DB.lists[ldKey]; else DB.lists[ldKey]=clean;
   LISTS[ldKey].apply();
   closeM('mo-lists');
-  setSS('List saved');
+  // No row = use defaults; so a default-equal list is stored by DELETING the row.
+  if(isDefault)sbSave(sb.from('app_lists').delete().eq('list_key',ldKey),'● List reset to defaults');
+  else sbSave(sb.from('app_lists').upsert({list_key:ldKey,items:clean,updated_at:new Date().toISOString()}),'● List saved');
 }
 function restoreListDefaults(){
   showCfm('Restore defaults?','Reset "'+LISTS[ldKey].label+'" to the built-in list? Your custom entries for it will be discarded.',()=>{
     if(DB.lists)delete DB.lists[ldKey];
     $('ld-items').value=LISTS[ldKey].defaults.join('\n');
     $('ld-hint').textContent='Using built-in defaults.';
-    triggerSave();
     LISTS[ldKey].apply();
+    sbSave(sb.from('app_lists').delete().eq('list_key',ldKey),'● Restored defaults');
   });
 }
 
