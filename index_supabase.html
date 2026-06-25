@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -484,8 +484,8 @@ td{padding:7px 10px;vertical-align:middle}
    Supabase dashboard → Project Settings → API.
    The anon key is safe to ship in client code; RLS protects the data.
    ════════════════════════════════════════════════════════════════════ */
-const SUPABASE_URL      = 'https://igusxvvnzdpoqwizcvke.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
+const SUPABASE_URL      = 'https://YOUR-PROJECT-REF.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
 
 /* "Remember me on this device": when true (default) the Supabase session is
    persisted in localStorage so admins stay signed in across reloads. When the
@@ -1127,41 +1127,81 @@ function openCM(id){
   }
   openM('mo-crs');
 }
-function saveCrs(){
+/* legacy course object → courses table columns */
+function crsRow(d){
+  const I=v=>{const s=String(v??'').trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
+  const T=v=>{const s=(v==null?'':String(v)).trim();return s===''?null:s;};
+  const B=v=>String(v??'').trim().toLowerCase()==='yes';
+  return {course_code:d.id, prefix:d.prefix, number:d.number, number2:T(d.number2),
+    title:d.title, full_name:d.fullName, credits:T(d.credits), grading:T(d.pnp),
+    level:T(d.grugb), permission_required:B(d.permission), fte_exempt:B(d.fteExempt),
+    max_cap:I(d.maxCap)};
+}
+async function saveCrs(){
   const pfx=val('cm-pfx'),num=val('cm-num').trim();
   if(!num){alert('Course number required.');return;}
   const num2=val('cm-num2').trim(),title=val('cm-ttl').trim();
   const nd=num2?`${num}/${num2}`:num;
-  let id=eidC;
+  let id=eidC, uuid=null;
+  if(id){const ex=DB.courses.find(c=>c.id===id);uuid=ex?ex._uuid:null;}
   if(!id){
-    // New course: derive id from prefix_number, but never collide with an
-    // existing course (distinct courses can share a prefix+number).
+    // New course: collision-safe code from prefix_number (distinct courses
+    // can share a prefix+number).
     const base=`${pfx}_${num}`;id=base;
     const letters='bcdefghijklmnop';let k=0;
     while(DB.courses.some(c=>c.id===id)){id=base+'_'+letters[k++];}
   }
-  const data={id,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
+  const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
     credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),maxCap:val('cm-cap')};
-  if(eidC){const i=DB.courses.findIndex(x=>x.id===eidC);if(i>=0)DB.courses[i]=data;}
-  else DB.courses.push(data);
+  const row=crsRow(data);
+
+  // Persist the course first — its UUID is needed for any new term offerings.
+  if(eidC&&uuid){
+    const idx=DB.courses.findIndex(x=>x.id===eidC);if(idx>=0)DB.courses[idx]=data;
+    const r=await sbSave(sb.from('courses').update(row).eq('id',uuid),'● Course saved');
+    if(r===null)return;                       // reverted on error
+  }else{
+    const {data:ins,error}=await sb.from('courses').insert(row).select().single();
+    if(error){setSS('⚠ Not added: '+error.message);return;}
+    data._uuid=ins.id;data.id=ins.course_code;uuid=ins.id;id=ins.course_code;
+    DB.courses.push(data);
+  }
+
+  // Term checkboxes → add / remove offerings (offRow resolves course_id from
+  // DB, which now contains this course with its _uuid).
   const tk={Summer26:'cm-su',Fall26:'cm-fa',Winter27:'cm-wi',Spring27:'cm-sp'};
-  TERMS.forEach(t=>{
-    const on=chk(tk[t]),ex=DB.offerings.find(o=>o.courseId===id&&o.term===t);
-    if(on&&!ex){DB.offerings.push({id:genid(),term:t,prefix:pfx,courseNumber:num,courseId:id,fullName:`${pfx} - ${nd}: ${title}`,
-      instructor1:'',instructor2:'',totalCap:val('cm-cap')??'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
-      days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',modality:'',
-      grugb:val('cm-grugb')??'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:''});}
-    else if(!on&&ex&&!(ex.instructor1||ex.days||ex.modality)){
+  for(const t of TERMS){
+    const on=chk(tk[t]);
+    const ex=DB.offerings.find(o=>o.courseId===id&&o.term===t);
+    if(on&&!ex){
+      const off={id:genid(),term:t,prefix:pfx,courseNumber:num,courseId:id,fullName:`${pfx} - ${nd}: ${title}`,
+        instructor1:'',instructor2:'',totalCap:val('cm-cap')||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
+        days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',modality:'',
+        grugb:val('cm-grugb')||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:''};
+      const {data:oi,error:oe}=await sb.from('offerings').insert(offRow(off)).select().single();
+      if(oe){setSS('⚠ Term add failed: '+oe.message);}else{off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);}
+    }else if(!on&&ex&&!(ex.instructor1||ex.days||ex.modality)){
+      const u2=ex._uuid;
       DB.offerings=DB.offerings.filter(o=>!(o.courseId===id&&o.term===t));
+      if(u2){const {error:de}=await sb.from('offerings').delete().eq('id',u2);if(de)setSS('⚠ Term remove failed: '+de.message);}
     }
-  });
-  triggerSave();closeM('mo-crs');renderCat();renderSched();
+  }
+  closeM('mo-crs');renderCat();renderSched();setSS('● Course saved');
 }
 function delCrs(){
-  const c=DB.courses.find(x=>x.id===eidC);
-  showCfm('Delete course?',`Delete "${c?c.fullName:'this course'}" and all its offerings?`,()=>{
-    DB.courses=DB.courses.filter(x=>x.id!==eidC);DB.offerings=DB.offerings.filter(x=>x.courseId!==eidC);
-    triggerSave();closeM('mo-crs');renderCat();renderSched();
+  const c=DB.courses.find(x=>x.id===eidC);const uuid=c?c._uuid:null;
+  showCfm('Delete course?',`Delete "${c?c.fullName:'this course'}" and all its offerings?`,async()=>{
+    closeM('mo-crs');
+    DB.courses=DB.courses.filter(x=>x.id!==eidC);
+    DB.offerings=DB.offerings.filter(x=>x.courseId!==eidC);
+    renderCat();renderSched();
+    if(uuid){
+      // Offerings first — courses FK is ON DELETE RESTRICT.
+      const r1=await sb.from('offerings').delete().eq('course_id',uuid);
+      const r2=r1.error?r1:await sb.from('courses').delete().eq('id',uuid);
+      if(r1.error||r2.error){setSS('⚠ Delete failed: '+((r1.error||r2.error).message)+' — reverting');await reloadAll();return;}
+      setSS('● Course deleted');
+    }
   });
 }
 
