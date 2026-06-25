@@ -484,8 +484,8 @@ td{padding:7px 10px;vertical-align:middle}
    Supabase dashboard → Project Settings → API.
    The anon key is safe to ship in client code; RLS protects the data.
    ════════════════════════════════════════════════════════════════════ */
-const SUPABASE_URL      = 'https://igusxvvnzdpoqwizcvke.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
+const SUPABASE_URL      = 'https://YOUR-PROJECT-REF.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
 
 /* "Remember me on this device": when true (default) the Supabase session is
    persisted in localStorage so admins stay signed in across reloads. When the
@@ -804,7 +804,15 @@ function renderSched(){
   $('sched-tb').innerHTML=h;
 }
 function sortSched(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1;}renderSched();}
-function updateEnroll(id,v){const o=DB.offerings.find(x=>x.id===id);if(o){o.enrollment=v;triggerSave();}}
+function updateEnroll(id,v){
+  const o=DB.offerings.find(x=>x.id===id);if(!o)return;
+  o.enrollment=v;                       // optimistic local update
+  if(o._uuid){
+    const s=String(v).trim();
+    const iv=s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);
+    sbSave(sb.from('offerings').update({enrollment:iv}).eq('id',o._uuid),'● Enrollment saved');
+  }
+}
 
 /* ─── GANTT ─────────────────────────────────────────────────── */
 function renderGantt(){
@@ -1027,23 +1035,78 @@ function togglePotRow(){
   document.getElementById('pot-row').style.display = isSummer ? 'block' : 'none';
 }
 function autoEmail(n){const i=DB.instructors.find(x=>x.displayName===val('om-i'+n));if(i)setv('om-e'+n,i.email??'');}
+/* ─── SUPABASE WRITE HELPERS ───────────────────────────────────
+   Optimistic pattern: callers mutate the in-memory DB and re-render
+   immediately, then fire the write. sbSave reverts to server truth
+   (reloadAll) if the write fails — e.g. RLS denial for a non-admin or
+   an expired session — so the UI never drifts from the database. */
+function renderActive(){
+  const tab=document.querySelector('.view.active');if(!tab)return;
+  const n=tab.id.replace('view-','');
+  if(n==='gantt')renderGantt();else if(n==='chtool')renderCht();
+  else if(n==='catalog')renderCat();else if(n==='instructors')renderInst();
+}
+async function reloadAll(){
+  try{await loadData();renderAll();renderActive();}
+  catch(e){setSS('⚠ Reload failed: '+e.message);}
+}
+async function sbSave(promise,okMsg){
+  try{
+    const {data,error}=await promise;
+    if(error){setSS('⚠ Not saved: '+(error.message||'permission denied')+' — reverting');await reloadAll();return null;}
+    setSS(okMsg||'● Saved');return data===undefined?true:data;
+  }catch(e){setSS('⚠ Not saved: '+e.message+' — reverting');await reloadAll();return null;}
+}
+const _facIdByDisp=dn=>{if(!dn)return null;const i=DB.instructors.find(x=>x.displayName===dn);return i?i.facultyId:null;};
+const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:null;};
+/* legacy offering object → offerings table columns */
+function offRow(d){
+  const I=v=>{const s=String(v??'').trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
+  const T=v=>{const s=(v==null?'':String(v)).trim();return s===''?null:s;};
+  return {source_id:d.id, course_id:_courseUuid(d.courseId),
+    instructor1_id:_facIdByDisp(d.instructor1), instructor2_id:_facIdByDisp(d.instructor2),
+    term:d.term, level:T(d.grugb), days:T(d.days), time:T(d.time), modality:T(d.modality),
+    roomed:T(d.roomed), room_number:T(d.roomNumber), total_cap:I(d.totalCap), enrollment:I(d.enrollment),
+    ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
+    restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
+    admin_notes:T(d.adminNotes), pot:T(d.pot)};
+}
+
 function saveOff(){
   const cid=val('om-course');const c=DB.courses.find(x=>x.id===cid);
   if(!cid||!c){alert('Please select a course.');return;}
   const nd=c.number2?`${c.number}/${c.number2}`:c.number;
   const data={id:eidO??genid(),term:val('om-term'),prefix:c.prefix,courseNumber:c.number,courseId:cid,
     fullName:`${c.prefix} - ${nd}: ${c.title}`,instructor1:val('om-i1'),instructor2:val('om-i2'),
-    i1Email:val('om-e1'),i2Email:val('om-e2'),days:val('om-days'),time:val('om-time'),modality:val('om-mod'),
+    i1Email:'',i2Email:'',days:val('om-days'),time:val('om-time'),modality:val('om-mod'),
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:val('om-grugb'),totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
-  if(eidO){const i=DB.offerings.findIndex(x=>x.id===eidO);if(i>=0)DB.offerings[i]=data;}
-  else DB.offerings.push(data);
-  triggerSave();closeM('mo-off');renderSched();
+  const row=offRow(data);
+  if(eidO){
+    // Existing → optimistic local update + render, then write by UUID.
+    const idx=DB.offerings.findIndex(x=>x.id===eidO);
+    const uuid=idx>=0?DB.offerings[idx]._uuid:null;
+    data._uuid=uuid;
+    if(idx>=0)DB.offerings[idx]=data;
+    closeM('mo-off');renderSched();
+    if(!uuid){setSS('⚠ Missing row id — reverting');reloadAll();return;}
+    sbSave(sb.from('offerings').update(row).eq('id',uuid),'● Offering saved');
+  }else{
+    // New → insert, then add locally with the returned UUID.
+    setSS('Saving…');
+    sb.from('offerings').insert(row).select().single().then(({data:ins,error})=>{
+      if(error){setSS('⚠ Not added: '+error.message);return;}
+      data._uuid=ins.id;data.id=ins.source_id||ins.id;
+      DB.offerings.push(data);closeM('mo-off');renderSched();setSS('● Offering added');
+    });
+  }
 }
 function delOff(){showCfm('Delete offering?','This will permanently remove this offering from the schedule.',()=>{
-  DB.offerings=DB.offerings.filter(x=>x.id!==eidO);triggerSave();closeM('mo-off');renderSched();
+  const o=DB.offerings.find(x=>x.id===eidO);const uuid=o?o._uuid:null;
+  DB.offerings=DB.offerings.filter(x=>x.id!==eidO);closeM('mo-off');renderSched();
+  if(uuid)sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering deleted');
 });}
 
 /* ─── COURSE MODAL ──────────────────────────────────────────── */
