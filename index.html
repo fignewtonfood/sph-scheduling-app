@@ -352,6 +352,7 @@ td{padding:7px 10px;vertical-align:middle}
       <div><label>Room #</label><input id="om-roomn"></div>
       <div><label>GR / UG / B</label><select id="om-grugb"><option>GR</option><option>UG</option><option>B</option></select></div>
       <div class="fsec">Caps &amp; Enrollment</div>
+      <div><label>CRN</label><input id="om-crn" inputmode="numeric" placeholder="e.g. 41234"><div class="fhint">Registration number (digits only)</div></div>
       <div><label>Total Cap</label><input id="om-cap" type="number"></div>
       <div><label>Enrollment (actual)</label><input id="om-enroll" type="number"><div class="fhint">Fill on Day 1 of term</div></div>
       <div><label>OHSU Cap 1</label><input id="om-o1" type="number"></div>
@@ -362,6 +363,7 @@ td{padding:7px 10px;vertical-align:middle}
       <div class="s2"><label>Restrictions — OHSU</label><input id="om-ro"></div>
       <div class="s2"><label>Restrictions — PSU</label><input id="om-rp"></div>
       <div><label>PSU Text</label><input id="om-pt"></div>
+      <div><label>Print in schedule?</label><select id="om-print"><option>Print</option><option>No Print</option></select><div class="fhint">"No Print" shows a 🚫 on the Schedule</div></div>
       <div class="s2"><label>Admin Notes</label><textarea id="om-notes" rows="2"></textarea></div>
     </div></div>
     <div class="mft">
@@ -643,7 +645,8 @@ async function loadData(){
       ohsuCap1:S(o.ohsu_cap1), ohsuCap2:S(o.ohsu_cap2),
       psuCap1:S(o.psu_cap1), psuCap2:S(o.psu_cap2),
       restrictOhsu:S(o.restrict_ohsu), restrictPsu:S(o.restrict_psu),
-      psuText:S(o.psu_text), adminNotes:S(o.admin_notes), pot:S(o.pot)
+      psuText:S(o.psu_text), adminNotes:S(o.admin_notes), pot:S(o.pot),
+      crn:S(o.crn), printStatus:(o.print_status||'Print')
     };
   });
 
@@ -753,9 +756,10 @@ function renderSched(){
     const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
     const potBadge=(o.term==='Summer26'&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
+    const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
     h+=`<tr>
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality)}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -946,7 +950,7 @@ function toggleOff(cid,pfx,term){
     const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
       instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
       days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',
-      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:''};
+      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:'',crn:'',printStatus:'Print'};
     sb.from('offerings').insert(offRow(off)).select().single().then(({data:oi,error})=>{
       if(error){setSS('⚠ Not added: '+error.message);return;}
       off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
@@ -992,13 +996,15 @@ function openOM(id){
     setv('om-cap',o.totalCap);setv('om-enroll',o.enrollment);setv('om-o1',o.ohsuCap1);setv('om-o2',o.ohsuCap2);
     setv('om-p1',o.psuCap1);setv('om-p2',o.psuCap2);setv('om-ro',o.restrictOhsu);setv('om-rp',o.restrictPsu);
     setv('om-pt',o.psuText);setv('om-notes',o.adminNotes);
+    setv('om-crn',o.crn??'');setv('om-print',o.printStatus||'Print');
     // POT
     const potVal=o.pot??'';
     if(potVal&&potVal!==''&&!document.querySelector('#om-pot option[value="'+potVal+'"]')){
       setv('om-pot','other');setv('om-pot-other',potVal);$('om-pot-other').style.display='';
     }else{setv('om-pot',potVal);setv('om-pot-other','');$('om-pot-other').style.display='none';}
   }else{
-    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-pot','om-pot-other'].forEach(f=>setv(f,''));
+    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-pot','om-pot-other','om-crn'].forEach(f=>setv(f,''));
+    setv('om-print','Print');
     $('om-pot-other').style.display='none';
   }
   togglePotRow();
@@ -1043,7 +1049,8 @@ function offRow(d){
     roomed:T(d.roomed), room_number:T(d.roomNumber), total_cap:I(d.totalCap), enrollment:I(d.enrollment),
     ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
     restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
-    admin_notes:T(d.adminNotes), pot:T(d.pot)};
+    admin_notes:T(d.adminNotes), pot:T(d.pot),
+    crn:T(d.crn), print_status:(d.printStatus||'Print')};
 }
 
 function saveOff(){
@@ -1056,6 +1063,7 @@ function saveOff(){
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:val('om-grugb'),totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
+    crn:val('om-crn').replace(/\D/g,''),printStatus:val('om-print')||'Print',
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
   const row=offRow(data);
   if(eidO){
@@ -1273,10 +1281,10 @@ function triggerSave(){
 /* ─── CSV EXPORTS ───────────────────────────────────────────── */
 function expSched(){
   const term=val('f-term'),pfx=val('f-pfx');
-  const rows=[['Term','Prefix','Course','Instructor 1','Instructor 2','POT','Days','Time','Modality','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
+  const rows=[['Term','Prefix','Course','CRN','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
   DB.offerings.filter(o=>(!term||o.term===term)&&(!pfx||o.prefix===pfx))
     .sort((a,b)=>(TO[a.term]-TO[b.term])||a.prefix.localeCompare(b.prefix))
-    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
+    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crn??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
   dlCSV(rows,'SPH_Schedule_AY26-27.csv');
 }
 function expCht(){
