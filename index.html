@@ -153,6 +153,7 @@ td{padding:7px 10px;vertical-align:middle}
   <header>
     <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026–27</div></div>
     <div class="hsp"></div>
+    <span id="auth-slot" style="display:inline-flex;align-items:center;gap:8px;margin-right:6px"></span>
     <span id="admin-badge">ADMIN</span>
     <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Reload latest data from the database">↺ Sync</button>
     <span id="save-status">Ready</span>
@@ -779,7 +780,11 @@ function renderGantt(){
   const term=val('g-term'),pfx=val('g-pfx');
   const SHOW=new Set(['In-Person','Hybrid','Online (sync)']);
   const N=30;
-  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx));
+  // Enrollment parse: '' / non-numeric → null (blank → falls back to cap);
+  // an explicit number is used as-is. An explicit 0 means "nobody enrolled",
+  // so the offering is hidden from the Gantt entirely (and thus counts as 0).
+  const enrNum=o=>{const s=String(o.enrollment==null?'':o.enrollment).trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
+  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&enrNum(o)!==0);
   const wrap=$('gantt-wrap');
   if(!courses.length){wrap.innerHTML='<div class="nores">No In-Person/Hybrid/Sync courses for this filter.</div>';return;}
   const pct=s=>((s/N)*100).toFixed(2)+'%';
@@ -799,8 +804,9 @@ function renderGantt(){
   courses.sort((a,b)=>a.prefix.localeCompare(b.prefix)).forEach((o,ci)=>{
     const slots=t2s(o.time),days=parseDays(o.days);
     const color=GCOLS[ci%GCOLS.length];
-    const enroll=parseInt(o.enrollment)||0,cap=parseInt(o.totalCap)||0;
-    const disp=enroll>0?enroll:(cap>0?'('+cap+')':'');
+    const cap=parseInt(o.totalCap)||0,en=enrNum(o);
+    const eff=en!=null?en:cap;                                 // blank → fall back to cap
+    const disp=en!=null?(en>0?en:''):(cap>0?'('+cap+')':'');   // (parens) = cap fallback
     html+=`<div style="display:grid;grid-template-columns:260px 1fr;border-bottom:1px solid #EFF3F8"><div style="padding:4px 8px;font-size:11px;overflow:hidden"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.fullName)}</div><div style="color:#64748B;font-size:10px">${esc(o.instructor1)}</div></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">`;
     for(let d=0;d<5;d++){
       html+=`<div style="position:relative;height:34px;border-right:1px solid #E2EAF4">`;
@@ -808,7 +814,7 @@ function renderGantt(){
         const si=Math.max(0,Math.floor(slots.start)),ei=Math.min(N,Math.ceil(slots.end));
         const left=pct(si),width=((ei-si)/N*100).toFixed(2)+'%';
         html+=`<div style="position:absolute;top:2px;bottom:2px;left:${left};width:${width};background:${color};border-radius:3px;display:flex;align-items:center;padding:0 4px;font-size:10px;color:white;font-weight:600;overflow:hidden;cursor:pointer" class="gbar" data-id="${esc(o.id)}">${disp}</div>`;
-        for(let s=si;s<ei&&s<N;s++)totals[d][s]+=(enroll||cap);
+        for(let s=si;s<ei&&s<N;s++)totals[d][s]+=eff;
       }
       html+='</div>';
     }
@@ -1417,7 +1423,7 @@ function wireEvents(){
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
   $('btn-admin-toggle').addEventListener('click',()=>{
     if(isAdmin)showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
-    else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the top-right to enable admin');}}
+    else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the header to enable admin');}}
   });
   $('btn-lists').addEventListener('click',openLists);
   $('ld-key').addEventListener('change',e=>loadListIntoEditor(e.target.value));
@@ -1530,27 +1536,24 @@ function setPersist(on){
   initSupabase();
 }
 
-/* Injected auth bar — avoids editing existing modal HTML for this chunk. */
+/* Auth bar — mounted inline in the header (see #auth-slot). Inner element
+   IDs are unchanged so all sign-in / persist wiring stays identical. */
 function buildAuthBar(){
-  if($('auth-bar'))return;
-  const bar=document.createElement('div');
-  bar.id='auth-bar';
-  bar.style.cssText='position:fixed;top:8px;right:10px;z-index:9999;background:#fff;'
-    +'border:1px solid #d0d0d0;border-radius:8px;padding:8px 10px;font:13px/1.4 system-ui,sans-serif;'
-    +'box-shadow:0 2px 8px rgba(0,0,0,.12);max-width:320px;';
-  bar.innerHTML=
-    '<div id="ab-out">'
+  const slot=$('auth-slot');
+  if(!slot||slot.dataset.built)return;
+  slot.dataset.built='1';
+  slot.innerHTML=
+    '<span id="ab-out" style="display:inline-flex;align-items:center;gap:6px">'
     +'<input id="ab-email" type="email" placeholder="you@ohsu.edu" '
-    +'style="width:160px;padding:4px 6px;border:1px solid #ccc;border-radius:5px;font-size:13px">'
-    +' <button id="ab-signin" style="padding:4px 10px">Sign in</button>'
-    +'<label style="display:block;margin-top:6px;color:#555;font-size:12px">'
-    +'<input id="ab-persist" type="checkbox"> Remember me on this device</label>'
-    +'</div>'
-    +'<div id="ab-in" style="display:none">'
-    +'<span id="ab-who" style="color:#333"></span> '
-    +'<button id="ab-signout" style="padding:3px 9px;margin-left:6px">Sign out</button>'
-    +'</div>';
-  document.body.appendChild(bar);
+    +'style="width:150px;padding:3px 7px;border:1px solid rgba(255,255,255,.3);border-radius:5px;font-size:12px;background:#fff;color:#1E293B">'
+    +'<button id="ab-signin" class="btn btn-s" style="font-size:11px;padding:4px 10px">Sign in</button>'
+    +'<label title="Keep me signed in on this device" style="display:inline-flex;align-items:center;gap:4px;color:#CBD5E1;font-size:11px;white-space:nowrap;cursor:pointer">'
+    +'<input id="ab-persist" type="checkbox" style="margin:0;cursor:pointer">Remember me</label>'
+    +'</span>'
+    +'<span id="ab-in" style="display:none;align-items:center;gap:6px">'
+    +'<span id="ab-who" style="color:#CBD5E1;font-size:12px;white-space:nowrap"></span>'
+    +'<button id="ab-signout" class="btn btn-s" style="font-size:11px;padding:4px 10px">Sign out</button>'
+    +'</span>';
   $('ab-persist').checked=wantPersist();
   $('ab-persist').addEventListener('change',e=>setPersist(e.target.checked));
   $('ab-signin').addEventListener('click',()=>signInEmail(val('ab-email').trim()));
@@ -1558,13 +1561,13 @@ function buildAuthBar(){
   $('ab-signout').addEventListener('click',signOut);
 }
 function updateAuthBar(user,admin){
-  if(!$('auth-bar'))return;
   const inB=$('ab-in'),outB=$('ab-out');
+  if(!inB||!outB)return;
   if(user){
-    outB.style.display='none';inB.style.display='';
+    outB.style.display='none';inB.style.display='inline-flex';
     $('ab-who').textContent=(user.email||'signed in')+(admin?' · scheduling admin':' · viewer');
   }else{
-    outB.style.display='';inB.style.display='none';
+    outB.style.display='inline-flex';inB.style.display='none';
   }
 }
 
