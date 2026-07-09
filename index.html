@@ -216,6 +216,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
         <select id="g-term"><option value="Fall26">Fall 2026</option><option value="Summer26">Summer 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select>
         <select id="g-pfx"><option value="">All Programs</option></select>
         <div class="tb-sp"></div>
+        <button class="btn btn-s" id="btn-oc-report">🖨 On-Campus Report</button>
         <span class="tb-hint">Bars = In-Person / Hybrid · Numbers = enrollment (cap if blank)</span>
       </div>
       <div class="gantt-scroll" id="gantt-wrap"></div>
@@ -896,6 +897,182 @@ function renderGantt(){
   }
   html+='</div></div></div>';
   wrap.innerHTML=html;
+}
+
+/* ─── ON-CAMPUS REPORT ──────────────────────────────────────────
+   A printable headcount-by-day×time report for one term. Mirrors the
+   On-Campus tab's math exactly (In-Person + Hybrid, enrollment with
+   cap fallback, 0-enrollment excluded), then adds lull detection:
+   low-traffic slots sitting INSIDE a day's active teaching window —
+   the quiet gaps before, after, or between the busy periods. */
+const N_SLOTS=30;                                   // 30 × 30-min slots from 7:00am
+const slotLabel=si=>{ const mins=420+si*30, h=Math.floor(mins/60), m=mins%60;
+  const ap=h<12?'am':'pm', h12=h%12===0?12:h%12; return h12+':'+String(m).padStart(2,'0')+ap; };
+const slotRange=si=>slotLabel(si)+'–'+slotLabel(si+1);
+
+function computeOnCampus(term,pfx){
+  const SHOW=new Set(['In-Person','Hybrid']);
+  const enrNum=o=>{const s=String(o.enrollment==null?'':o.enrollment).trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
+  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&enrNum(o)!==0);
+  const totals=Array(5).fill(0).map(()=>new Array(N_SLOTS).fill(0));
+  const meetings=[];                                // flat list for the roster-ish detail
+  courses.forEach(o=>{
+    const slots=t2s(o.time),days=parseDays(o.days);
+    if(!slots||!(slots.end>slots.start)||!days.length)return;
+    const cap=parseInt(o.totalCap)||0,en=enrNum(o);
+    const eff=en!=null?en:cap;
+    const si=Math.max(0,Math.floor(slots.start)),ei=Math.min(N_SLOTS,Math.ceil(slots.end));
+    days.forEach(d=>{for(let s=si;s<ei&&s<N_SLOTS;s++)totals[d][s]+=eff;});
+    meetings.push({name:o.fullName,instructor:o.instructor1,days:o.days,time:o.time,
+      room:[o.roomed,o.roomNumber].filter(Boolean).join(' '),modality:o.modality,head:eff,capFallback:en==null});
+  });
+  return {courses,totals,meetings};
+}
+// Find lull runs within each day's active window (first→last occupied slot).
+// A slot is a "lull" if its headcount is below a fraction of that day's peak.
+// Returns per-day: peak, peakSlots, activeStart/End, and lull run descriptors.
+function analyzeDays(totals){
+  const LULL_FRAC=0.34;                             // "low" = under ~a third of the day's peak
+  return totals.map(day=>{
+    const peak=Math.max(0,...day);
+    let first=-1,last=-1;
+    for(let i=0;i<N_SLOTS;i++){if(day[i]>0){if(first<0)first=i;last=i;}}
+    const out={peak,first,last,peakSlots:[],lulls:[]};
+    if(peak===0||first<0)return out;
+    for(let i=0;i<N_SLOTS;i++)if(day[i]===peak)out.peakSlots.push(i);
+    const thr=Math.max(1,Math.round(peak*LULL_FRAC));
+    // Scan the active window for contiguous runs below threshold.
+    let run=null;
+    for(let i=first;i<=last;i++){
+      const low=day[i]<thr;
+      if(low){ if(!run)run={start:i,end:i,min:day[i]}; else{run.end=i;run.min=Math.min(run.min,day[i]);} }
+      else if(run){ out.lulls.push(_closeLull(run,day,first,last)); run=null; }
+    }
+    if(run)out.lulls.push(_closeLull(run,day,first,last));
+    out.threshold=thr;
+    return out;
+  });
+}
+function _closeLull(run,day,first,last){
+  // flanking = the busy counts immediately before/after the lull run (within window)
+  const before=run.start>first?day[run.start-1]:null;
+  const after=run.end<last?day[run.end+1]:null;
+  let kind='between'; if(before==null)kind='start'; else if(after==null)kind='end';
+  return {start:run.start,end:run.end,min:run.min,before,after,kind};
+}
+
+function generateOnCampusReport(){
+  const term=val('g-term'), pfx=val('g-pfx');
+  const {courses,totals,meetings}=computeOnCampus(term,pfx);
+  const termLabel=TL[term]||term;
+  if(!courses.length){setSS('No In-Person/Hybrid courses to report for '+termLabel);return;}
+  const days=analyzeDays(totals);
+  const dayMax=Math.max(1,...totals.map(d=>Math.max(0,...d)));
+  const studentHours=totals.reduce((a,d)=>a+d.reduce((x,y)=>x+y,0),0)*0.5;
+  const busiestDay=days.reduce((bi,d,i,arr)=>d.peak>arr[bi].peak?i:bi,0);
+
+  // ── heatmap cell background: light→dark blue by intensity ──
+  const cellBg=n=>{ if(n<=0)return '#F1F5F9'; const t=Math.min(1,n/dayMax);
+    const r=Math.round(219-(219-31)*t), g=Math.round(234-(234-56)*t), b=Math.round(248-(248-100)*t);
+    return `rgb(${r},${g},${b})`; };
+  const cellFg=n=>n>dayMax*0.55?'#fff':'#1E293B';
+
+  // ── build heatmap grid ──
+  let grid='<table class="hm"><thead><tr><th class="tlab">Time</th>';
+  GDAYS.forEach(d=>grid+=`<th>${d}</th>`); grid+='</tr></thead><tbody>';
+  for(let si=0;si<N_SLOTS;si++){
+    // skip fully-empty slots before the earliest / after the latest activity anywhere
+    const anyActive=totals.some(d=>d[si]>0);
+    const withinAny=totals.some((d,di)=>days[di].first>=0&&si>=days[di].first&&si<=days[di].last);
+    if(!anyActive&&!withinAny)continue;
+    grid+=`<tr><td class="tlab">${slotLabel(si)}</td>`;
+    for(let d=0;d<5;d++){
+      const n=totals[d][si];
+      const isLull=days[d].lulls.some(l=>si>=l.start&&si<=l.end);
+      const isPeak=days[d].peak>0&&n===days[d].peak;
+      const cls=(isLull?' lull':'')+(isPeak?' peak':'');
+      grid+=`<td class="cell${cls}" style="background:${cellBg(n)};color:${cellFg(n)}">${n>0?n:''}</td>`;
+    }
+    grid+='</tr>';
+  }
+  grid+='</tbody></table>';
+
+  // ── per-day lull narrative ──
+  let lullHtml='';
+  days.forEach((d,i)=>{
+    if(d.peak===0){lullHtml+=`<div class="dblock"><h3>${GDAYS[i]}</h3><p class="muted">No on-campus classes.</p></div>`;return;}
+    const peakWhen=d.peakSlots.length?slotRange(d.peakSlots[0]):'';
+    let items='';
+    if(!d.lulls.length){ items='<li class="muted">No notable lulls — traffic stays above ~'+d.threshold+' throughout.</li>'; }
+    else d.lulls.forEach(l=>{
+      const span=l.start===l.end?slotRange(l.start):(slotLabel(l.start)+'–'+slotLabel(l.end+1));
+      const ctx=l.kind==='between'?`dips to ${l.min} between busier periods (${l.before} before, ${l.after} after)`
+               :l.kind==='start'?`quiet ramp-up — ${l.min} on campus before the day fills to ${l.after}`
+               :`winding down — ${l.min} on campus after the ${l.before}-student block`;
+      items+=`<li><strong>${span}</strong>: ${ctx}</li>`;
+    });
+    lullHtml+=`<div class="dblock"><h3>${GDAYS[i]} <span class="pk">peak ${d.peak} @ ${peakWhen}</span></h3><ul>${items}</ul></div>`;
+  });
+
+  const genAt=_fmtTs(new Date().toISOString());
+  const pfxNote=pfx?` · Program: ${pfx}`:' · All programs';
+  const shStr=Math.round(studentHours).toLocaleString();
+  const doc=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>On-Campus Report — ${termLabel}</title>
+<style>
+  *{box-sizing:border-box}
+  body{font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1E293B;margin:0;padding:28px;background:#fff}
+  h1{font-size:20px;margin:0 0 2px} .sub{color:#64748B;font-size:12px;margin-bottom:18px}
+  .cards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+  .card{border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;min-width:130px}
+  .card .k{font-size:11px;color:#64748B;text-transform:uppercase;letter-spacing:.03em}
+  .card .v{font-size:20px;font-weight:700;color:#1F3864}
+  h2{font-size:14px;margin:22px 0 8px;border-bottom:2px solid #1F3864;padding-bottom:3px}
+  table.hm{border-collapse:collapse;width:100%;max-width:640px}
+  table.hm th{background:#1F3864;color:#fff;font-size:11px;padding:4px 6px;text-align:center}
+  table.hm th.tlab{background:#334155;text-align:right;width:70px}
+  td.tlab{font-size:10px;color:#64748B;text-align:right;padding:2px 6px;white-space:nowrap;border:1px solid #EEF2F7}
+  td.cell{text-align:center;font-size:11px;font-weight:600;padding:3px 0;border:1px solid #EEF2F7;min-width:44px}
+  td.cell.lull{outline:2px dashed #C2410C;outline-offset:-2px}
+  td.cell.peak{box-shadow:inset 0 0 0 2px #1F3864}
+  .legend{font-size:11px;color:#475569;margin:8px 0 0;display:flex;gap:16px;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .sw{width:13px;height:13px;border-radius:2px;display:inline-block}
+  .dblock{margin:12px 0;padding:10px 12px;border:1px solid #E2E8F0;border-radius:8px;break-inside:avoid}
+  .dblock h3{margin:0 0 6px;font-size:13px}
+  .dblock .pk{font-weight:500;color:#1F3864;font-size:11px;background:#EAF0F9;padding:1px 7px;border-radius:10px;margin-left:6px}
+  .dblock ul{margin:0;padding-left:18px} .dblock li{margin:2px 0}
+  .muted{color:#94A3B8}
+  .toolbar{position:fixed;top:14px;right:14px;display:flex;gap:8px}
+  .toolbar button{font:600 12px/1 inherit;padding:8px 14px;border:1px solid #1F3864;background:#1F3864;color:#fff;border-radius:6px;cursor:pointer}
+  .toolbar button.sec{background:#fff;color:#1F3864}
+  @media print{.toolbar{display:none}body{padding:0}}
+</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">🖨 Print / Save PDF</button><button class="sec" onclick="window.close()">Close</button></div>
+  <h1>On-Campus Headcount Report</h1>
+  <div class="sub">${termLabel}${pfxNote} · Generated ${genAt} · Basis: enrollment (cap in parens when blank), In-Person + Hybrid, 0-enrollment excluded</div>
+  <div class="cards">
+    <div class="card"><div class="k">On-campus classes</div><div class="v">${meetings.length}</div></div>
+    <div class="card"><div class="k">Peak on campus</div><div class="v">${days[busiestDay].peak}</div><div class="k">${GDAYS[busiestDay]} @ ${days[busiestDay].peakSlots.length?slotRange(days[busiestDay].peakSlots[0]):''}</div></div>
+    <div class="card"><div class="k">Student-hours / wk</div><div class="v">${shStr}</div></div>
+  </div>
+  <h2>Headcount by day &amp; time</h2>
+  ${grid}
+  <div class="legend">
+    <span><span class="sw" style="background:${cellBg(dayMax)}"></span> busier</span>
+    <span><span class="sw" style="background:${cellBg(Math.round(dayMax*0.25))}"></span> quieter</span>
+    <span><span class="sw" style="border:2px dashed #C2410C"></span> lull (quiet gap within the teaching day)</span>
+    <span><span class="sw" style="box-shadow:inset 0 0 0 2px #1F3864;background:#fff"></span> daily peak</span>
+  </div>
+  <h2>Downtimes &amp; quiet gaps</h2>
+  ${lullHtml}
+</body></html>`;
+
+  // Open in a new tab for viewing/printing. Fall back to download if blocked.
+  const blob=new Blob([doc],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const w=window.open(url,'_blank');
+  if(!w){ const a=document.createElement('a');a.href=url;a.download='OnCampus_'+term+'.html';a.click(); setSS('Report downloaded (popup was blocked)'); }
+  else setSS('● On-Campus report opened');
 }
 
 /* ─── CHTOOL ────────────────────────────────────────────────── */
@@ -1804,6 +1981,7 @@ function wireEvents(){
   $('g-term').addEventListener('change',renderGantt);
   $('g-pfx').addEventListener('change',renderGantt);
   $('gantt-wrap').addEventListener('click',e=>{const b=e.target.closest('.gbar');if(b&&isAdmin)openOM(b.dataset.id);});
+  $('btn-oc-report').addEventListener('click',generateOnCampusReport);
   // CHTool
   $('c-cat').addEventListener('change',renderCht);
   $('c-q').addEventListener('input',renderCht);
