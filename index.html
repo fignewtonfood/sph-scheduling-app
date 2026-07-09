@@ -189,6 +189,8 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
         <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dgray);cursor:pointer;white-space:nowrap"><input type="checkbox" id="f-incomplete" style="margin:0;cursor:pointer"> ⚠ Incomplete only</label>
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-off" style="display:none">+ Add Offering</button>
+        <button class="btn btn-s admin-only" id="btn-undo" style="display:none" disabled title="Nothing to undo">↶ Undo</button>
+        <button class="btn btn-s admin-only" id="btn-report" style="display:none">📄 Change Report</button>
         <button class="btn btn-s" id="btn-exp-sched">⬇ CSV</button>
         <div class="tb-sp"></div>
         <button class="btn btn-s admin-only" id="btn-reset" style="display:none;font-size:11px;color:var(--red);border-color:var(--red)">↺ Reset</button>
@@ -454,6 +456,23 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
   </div>
 </div>
 
+<!-- CHANGE REPORT MODAL -->
+<div class="mo" id="mo-report">
+  <div class="modal med">
+    <div class="mhd"><h3>Schedule Change Report</h3><button class="mx" data-close="mo-report">×</button></div>
+    <div class="mb"><div class="fg">
+      <div><label>From date</label><input id="rp-from" type="date"></div>
+      <div><label>To date</label><input id="rp-to" type="date"><div class="fhint">Leave "To" blank for “up to now”.</div></div>
+      <div class="s2"><label>Editor</label><select id="rp-actor"><option value="">All editors</option></select></div>
+      <div class="s2"><div class="fhint" id="rp-status">Pick a range and generate. Defaults to changes since your last report on this device.</div></div>
+    </div></div>
+    <div class="mft">
+      <button class="btn btn-s" data-close="mo-report">Close</button>
+      <button class="btn btn-p" id="btn-rp-gen">Generate .txt</button>
+    </div>
+  </div>
+</div>
+
 <!-- CONFIRM MODAL -->
 <div class="mo" id="mo-cfm">
   <div class="modal sm">
@@ -531,6 +550,8 @@ const GCOLS=['#2E75B6','#375623','#C55A11','#7B2C8C','#C00000','#1F6B75','#7F4F2
 /* ─── STATE ────────────────────────────────────────────────── */
 let DB={courses:[],instructors:[],offerings:[]};
 let isAdmin=false;
+let currentUserEmail=null;          // set on auth; stamped onto change_log rows
+let undoStack=[];                   // in-memory, session-only: changes THIS user made this session
 let sortCol='term', sortDir=1;
 let eidO=null, eidC=null, eidI=null;
 let cfmCb=null;
@@ -725,6 +746,7 @@ function enableAdmin(){
   $('admin-badge').classList.add('on');
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='');
   document.querySelectorAll('thead th.admin-only').forEach(e=>e.style.display='');
+  updateUndoBtn();
   setSS('Admin mode');
 }
 function disableAdmin(){
@@ -803,11 +825,14 @@ function renderSched(){
 function sortSched(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1;}renderSched();}
 function updateEnroll(id,v){
   const o=DB.offerings.find(x=>x.id===id);if(!o)return;
+  if(String(o.enrollment??'')===String(v??''))return;   // no-op guard: don't log unchanged
+  const before=snapOff(o);
   o.enrollment=v;                       // optimistic local update
   if(o._uuid){
     const s=String(v).trim();
     const iv=s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);
-    sbSave(sb.from('offerings').update({enrollment:iv}).eq('id',o._uuid),'● Enrollment saved');
+    sbSave(sb.from('offerings').update({enrollment:iv}).eq('id',o._uuid),'● Enrollment saved')
+      .then(ok=>{if(ok!==null)logChange('update',before,snapOff(o),o._uuid);});
   }
 }
 
@@ -971,9 +996,13 @@ function toggleOff(cid,pfx,term){
   if(ex){
     const removeIt=async()=>{
       const uuid=ex._uuid;
+      const before=snapOff(ex);
       DB.offerings=DB.offerings.filter(o=>!(o.courseId===cid&&o.term===term));
       renderCat();renderSched();
-      if(uuid)await sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering removed');
+      if(uuid){
+        const ok=await sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering removed');
+        if(ok!==null)logChange('delete',before,null,uuid);
+      }
     };
     if(ex.instructor1||ex.days||ex.modality){
       showCfm('Remove offering?',`Remove ${pfx} from ${TL[term]}? Scheduling details will be lost.`,removeIt);
@@ -991,6 +1020,7 @@ function toggleOff(cid,pfx,term){
       if(error){setSS('⚠ Not added: '+error.message);return;}
       off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
       renderCat();renderSched();setSS('● Offering added');
+      logChange('create',null,snapOff(off),oi.id);
     });
   }
 }
@@ -1079,6 +1109,115 @@ async function sbSave(promise,okMsg){
 }
 const _facIdByDisp=dn=>{if(!dn)return null;const i=DB.instructors.find(x=>x.displayName===dn);return i?i.facultyId:null;};
 const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:null;};
+
+/* ─── CHANGE LOG + UNDO ─────────────────────────────────────────
+   Every offering write records a full before/after snapshot to the
+   Supabase change_log table (powers the Change Report, visible to all
+   admins across devices) AND pushes an entry onto an in-memory undo
+   stack (session-only, this user's own changes). See change_log_v1.sql. */
+
+// A stable, serializable snapshot of an offering (legacy shape), for before/after.
+const SNAP_KEYS=['id','term','prefix','courseNumber','courseId','fullName','instructor1',
+  'instructor2','days','time','modality','roomed','roomNumber','grugb','totalCap','enrollment',
+  'ohsuCap1','ohsuCap2','psuCap1','psuCap2','restrictOhsu','restrictPsu','psuText','adminNotes',
+  'pot','crn','printStatus'];
+function snapOff(o){
+  if(!o)return null;
+  const s={}; SNAP_KEYS.forEach(k=>{s[k]=o[k]??'';}); return s;
+}
+// Record a change to change_log (fire-and-forget) and push to the undo stack.
+// action: 'create' | 'update' | 'delete'. before/after are snapshots (or null).
+// uuid is the offering's DB UUID (needed to reverse update/delete).
+function logChange(action,before,after,uuid,opts){
+  opts=opts||{};
+  const sid=(after&&after.id)||(before&&before.id)||null;
+  // Write the audit row. Don't block the UI on it; if it fails (e.g. table
+  // not migrated yet), the edit itself still stands — we just warn quietly.
+  if(sb){
+    sb.from('change_log').insert({
+      actor_email:currentUserEmail, offering_sid:sid, action,
+      before:before||null, after:after||null, is_undo:!!opts.isUndo
+    }).then(({error})=>{ if(error)console.warn('change_log insert failed:',error.message); });
+  }
+  // Only real (non-undo) changes go on the undo stack.
+  if(!opts.isUndo){
+    undoStack.push({action,before,after,uuid});
+    if(undoStack.length>50)undoStack.shift();   // cap memory; deep enough for any session
+    updateUndoBtn();
+  }
+}
+function updateUndoBtn(){
+  const b=$('btn-undo'); if(!b)return;
+  const n=undoStack.length;
+  b.disabled=n===0;
+  b.style.opacity=n===0?'.45':'1';
+  b.style.cursor=n===0?'default':'pointer';
+  b.title=n===0?'Nothing to undo':`Undo last change (${n} in this session)`;
+}
+// Reverse the most recent change this user made this session.
+async function undoLast(){
+  if(!undoStack.length){setSS('Nothing to undo');return;}
+  const e=undoStack[undoStack.length-1];
+  // Conflict check: has this offering changed in the DB since our edit?
+  // Compare current DB row against the snapshot we expect to be current
+  // (our 'after' for create/update; for delete the row should be absent).
+  try{
+    if(e.action==='create'){
+      // Reverse a create → delete the row we added.
+      if(!e.uuid){popUndo();setSS('⚠ Cannot undo (missing row id)');return;}
+      const cur=await _fetchOffRow(e.uuid);
+      if(cur && _conflicts(cur,e.after)){return _undoConflict();}
+      DB.offerings=DB.offerings.filter(o=>o._uuid!==e.uuid);
+      renderSched();renderCat();
+      const {error}=await sb.from('offerings').delete().eq('id',e.uuid);
+      if(error){setSS('⚠ Undo failed: '+error.message);await reloadAll();return;}
+      logChange('delete',e.after,null,e.uuid,{isUndo:true});
+      popUndo();setSS('↶ Undid: added '+(e.after&&e.after.fullName||'offering'));
+    }else if(e.action==='update'){
+      // Reverse an update → restore the 'before' snapshot.
+      if(!e.uuid){popUndo();setSS('⚠ Cannot undo (missing row id)');return;}
+      const cur=await _fetchOffRow(e.uuid);
+      if(cur && _conflicts(cur,e.after)){return _undoConflict();}
+      const row=offRow(e.before);
+      const {error}=await sb.from('offerings').update(row).eq('id',e.uuid);
+      if(error){setSS('⚠ Undo failed: '+error.message);await reloadAll();return;}
+      const idx=DB.offerings.findIndex(o=>o._uuid===e.uuid);
+      if(idx>=0){const restored={...e.before,_uuid:e.uuid};DB.offerings[idx]=restored;}
+      renderSched();renderCat();
+      logChange('update',e.after,e.before,e.uuid,{isUndo:true});
+      popUndo();setSS('↶ Undid change to '+(e.before&&e.before.fullName||'offering'));
+    }else if(e.action==='delete'){
+      // Reverse a delete → re-insert the 'before' snapshot as a new row.
+      const row=offRow(e.before);
+      const {data:ins,error}=await sb.from('offerings').insert(row).select().single();
+      if(error){setSS('⚠ Undo failed: '+error.message);await reloadAll();return;}
+      const restored={...e.before,_uuid:ins.id,id:ins.source_id||ins.id};
+      DB.offerings.push(restored);renderSched();renderCat();
+      logChange('create',null,snapOff(restored),ins.id,{isUndo:true});
+      popUndo();setSS('↶ Undid: restored '+(e.before&&e.before.fullName||'offering'));
+    }
+  }catch(err){setSS('⚠ Undo error: '+err.message);await reloadAll();}
+}
+function popUndo(){undoStack.pop();updateUndoBtn();}
+function _undoConflict(){
+  // Someone else changed this offering after us. Don't clobber their work.
+  popUndo();   // drop the now-unsafe entry
+  setSS('⚠ Undo skipped — this offering was changed by someone else since your edit');
+}
+async function _fetchOffRow(uuid){
+  try{const {data}=await sb.from('offerings').select('*').eq('id',uuid).maybeSingle();return data;}
+  catch(e){return null;}
+}
+// Does the current DB row differ from the snapshot we last wrote?
+// Compares the fields we manage; ignores server-only columns.
+function _conflicts(dbRow,expectedSnap){
+  if(!dbRow||!expectedSnap)return false;
+  const exp=offRow(expectedSnap);            // snapshot → column shape
+  const keys=['term','level','days','time','modality','roomed','room_number','total_cap',
+    'enrollment','ohsu_cap1','ohsu_cap2','psu_cap1','psu_cap2','restrict_ohsu','restrict_psu',
+    'psu_text','admin_notes','pot','crn','print_status','instructor1_id','instructor2_id'];
+  return keys.some(k=>String(dbRow[k]??'')!==String(exp[k]??''));
+}
 /* legacy offering object → offerings table columns */
 function offRow(d){
   const I=v=>{const s=String(v??'').trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
@@ -1110,11 +1249,13 @@ function saveOff(){
     // Existing → optimistic local update + render, then write by UUID.
     const idx=DB.offerings.findIndex(x=>x.id===eidO);
     const uuid=idx>=0?DB.offerings[idx]._uuid:null;
+    const before=idx>=0?snapOff(DB.offerings[idx]):null;   // capture pre-edit state
     data._uuid=uuid;
     if(idx>=0)DB.offerings[idx]=data;
     closeM('mo-off');renderSched();
     if(!uuid){setSS('⚠ Missing row id — reverting');reloadAll();return;}
-    sbSave(sb.from('offerings').update(row).eq('id',uuid),'● Offering saved');
+    sbSave(sb.from('offerings').update(row).eq('id',uuid),'● Offering saved')
+      .then(ok=>{if(ok!==null)logChange('update',before,snapOff(data),uuid);});
   }else{
     // New → insert, then add locally with the returned UUID.
     setSS('Saving…');
@@ -1122,13 +1263,16 @@ function saveOff(){
       if(error){setSS('⚠ Not added: '+error.message);return;}
       data._uuid=ins.id;data.id=ins.source_id||ins.id;
       DB.offerings.push(data);closeM('mo-off');renderSched();setSS('● Offering added');
+      logChange('create',null,snapOff(data),ins.id);
     });
   }
 }
 function delOff(){showCfm('Delete offering?','This will permanently remove this offering from the schedule.',()=>{
   const o=DB.offerings.find(x=>x.id===eidO);const uuid=o?o._uuid:null;
+  const before=snapOff(o);
   DB.offerings=DB.offerings.filter(x=>x.id!==eidO);closeM('mo-off');renderSched();
-  if(uuid)sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering deleted');
+  if(uuid)sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering deleted')
+    .then(ok=>{if(ok!==null)logChange('delete',before,null,uuid);});
 });}
 
 /* ─── COURSE MODAL ──────────────────────────────────────────── */
@@ -1351,6 +1495,102 @@ function expCht(){
   });
   dlCSV(rows,'SPH_CHTool_AY26-27.csv');
 }
+/* ─── CHANGE REPORT ─────────────────────────────────────────────
+   Reads the shared change_log table — global across all editors and
+   devices — for a chosen date range, and writes a plain-text report.
+   The date default follows "last run" via localStorage (per device). */
+const RP_LAST='sph_report_lastrun';
+async function openReport(){
+  // Default "From" to the last-run timestamp on this device (or 30 days back).
+  let from;
+  try{from=localStorage.getItem(RP_LAST);}catch(e){}
+  if(!from){const d=new Date(Date.now()-30*86400000);from=d.toISOString();}
+  $('rp-from').value=from.slice(0,10);
+  $('rp-to').value='';
+  // Populate the editor filter from distinct actors already in the log.
+  const sel=$('rp-actor'); sel.innerHTML='<option value="">All editors</option>';
+  try{
+    const {data}=await sb.from('change_log').select('actor_email').not('actor_email','is',null);
+    const emails=[...new Set((data||[]).map(r=>r.actor_email).filter(Boolean))].sort();
+    emails.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;sel.appendChild(o);});
+  }catch(e){}
+  $('rp-status').textContent='Pick a range and generate. Defaults to changes since your last report on this device.';
+  openM('mo-report');
+}
+async function genReport(){
+  const fromStr=val('rp-from'), toStr=val('rp-to'), actor=val('rp-actor');
+  if(!fromStr){$('rp-status').textContent='⚠ Choose a From date.';return;}
+  const fromISO=new Date(fromStr+'T00:00:00').toISOString();
+  const toISO=toStr?new Date(toStr+'T23:59:59').toISOString():new Date().toISOString();
+  $('rp-status').textContent='Generating…';
+  let q=sb.from('change_log').select('*').gte('created_at',fromISO).lte('created_at',toISO)
+        .order('created_at',{ascending:true});
+  if(actor)q=q.eq('actor_email',actor);
+  const {data,error}=await q;
+  if(error){$('rp-status').textContent='⚠ '+error.message;return;}
+  const rows=data||[];
+  const txt=buildReportText(rows,fromStr,toStr||'(now)',actor);
+  // Download as .txt
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain;charset=utf-8'}));
+  a.download='SPH_Schedule_Changes_'+fromStr+'_to_'+(toStr||'now')+'.txt';a.click();
+  // Remember this run for the next default.
+  try{localStorage.setItem(RP_LAST,new Date().toISOString());}catch(e){}
+  $('rp-status').textContent='✓ Generated '+rows.length+' change'+(rows.length!==1?'s':'')+'. Saved as .txt.';
+}
+// Field labels for human-readable diff lines (snapshot key → label).
+const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','Instructor 2'],
+  ['days','Days'],['time','Time'],['modality','Modality'],['roomed','Where Roomed'],
+  ['roomNumber','Room #'],['grugb','GR/UG/B'],['totalCap','Total Cap'],['enrollment','Enrollment'],
+  ['crn','CRN'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
+  ['psuCap1','PSU Cap 1'],['psuCap2','PSU Cap 2'],['restrictOhsu','Restrict OHSU'],
+  ['restrictPsu','Restrict PSU'],['psuText','PSU Text'],['adminNotes','Admin Notes'],['pot','POT']];
+function _fmtTs(iso){
+  const d=new Date(iso);
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function buildReportText(rows,from,to,actor){
+  const L=[];
+  L.push('SPH SCHEDULE — CHANGE REPORT');
+  L.push('Range: '+from+'  →  '+to);
+  if(actor)L.push('Editor: '+actor);
+  L.push('Generated: '+_fmtTs(new Date().toISOString()));
+  L.push('Total changes: '+rows.length);
+  L.push('='.repeat(60));
+  L.push('');
+  if(!rows.length){L.push('No changes in this range.');return L.join('\n');}
+  rows.forEach(r=>{
+    const who=r.actor_email||'(unknown)';
+    const when=_fmtTs(r.created_at);
+    const b=r.before||{}, a=r.after||{};
+    const name=(a.fullName||b.fullName||r.offering_sid||'offering');
+    const term=(a.term||b.term||'');
+    const tag=r.is_undo?' [UNDO]':'';
+    if(r.action==='create'){
+      L.push(when+' · '+who+tag);
+      L.push('  ADDED    '+name+(term?'  ('+term+')':''));
+      if(a.instructor1)L.push('           instructor: '+a.instructor1+(a.instructor2?' & '+a.instructor2:''));
+      if(a.days||a.time)L.push('           '+[a.days,a.time].filter(Boolean).join('  ')+(a.modality?'  ['+a.modality+']':''));
+    }else if(r.action==='delete'){
+      L.push(when+' · '+who+tag);
+      L.push('  REMOVED  '+name+(term?'  ('+term+')':''));
+    }else{ // update
+      const diffs=[];
+      RP_FIELDS.forEach(([k,label])=>{
+        const ov=String(b[k]??''), nv=String(a[k]??'');
+        if(ov!==nv)diffs.push('           '+label+': "'+ov+'" → "'+nv+'"');
+      });
+      if(!diffs.length)return; // nothing user-visible changed
+      L.push(when+' · '+who+tag);
+      L.push('  EDITED   '+name+(term?'  ('+term+')':''));
+      diffs.forEach(d=>L.push(d));
+    }
+    L.push('');
+  });
+  return L.join('\n');
+}
+
 function dlCSV(rows,fn){
   const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const a=document.createElement('a');
@@ -1498,6 +1738,9 @@ function wireEvents(){
   $('f-q').addEventListener('input',renderSched);
   $('f-incomplete').addEventListener('change',renderSched);
   $('btn-add-off').addEventListener('click',()=>openOM(null));
+  $('btn-undo').addEventListener('click',undoLast);
+  $('btn-report').addEventListener('click',openReport);
+  $('btn-rp-gen').addEventListener('click',genReport);
   $('btn-exp-sched').addEventListener('click',expSched);
   $('btn-reset').addEventListener('click',resetSeed);
   $('btn-sync').addEventListener('click',syncData);
@@ -1569,7 +1812,8 @@ function wireEvents(){
 async function refreshAdmin(){
   if(!sb){disableAdmin();return;}
   const {data:{session}}=await sb.auth.getSession();
-  if(!session){disableAdmin();updateAuthBar(null);return;}
+  if(!session){disableAdmin();updateAuthBar(null);currentUserEmail=null;return;}
+  currentUserEmail=session.user?.email||null;
   // Am I a scheduling admin? Self-read on app_access (RLS: own rows only).
   let admin=false;
   try{
