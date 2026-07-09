@@ -1546,14 +1546,14 @@ async function genReport(){
   const all=data||[];
   const reverted=new Set(all.filter(r=>r.is_undo&&r.reverts_id).map(r=>r.reverts_id));
   const rows=all.filter(r=>!r.is_undo && !reverted.has(r.id));  // net changes only
-  const txt=buildReportText(rows,fromStr,toStr||'(now)',actor);
+  const rep=buildReportText(rows,fromStr,toStr||'(now)',actor);
   // Download as .txt
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain;charset=utf-8'}));
+  a.href=URL.createObjectURL(new Blob([rep.text],{type:'text/plain;charset=utf-8'}));
   a.download='SPH_Schedule_Changes_'+fromStr+'_to_'+(toStr||'now')+'.txt';a.click();
   // Remember this run for the next default.
   try{localStorage.setItem(RP_LAST,new Date().toISOString());}catch(e){}
-  $('rp-status').textContent='✓ Generated '+rows.length+' change'+(rows.length!==1?'s':'')+'. Saved as .txt.';
+  $('rp-status').textContent='✓ Generated '+rep.count+' net change'+(rep.count!==1?'s':'')+'. Saved as .txt.';
 }
 // Field labels for human-readable diff lines (snapshot key → label).
 const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','Instructor 2'],
@@ -1568,15 +1568,33 @@ function _fmtTs(iso){
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
 }
 function buildReportText(rows,from,to,actor){
+  // Net-zero field suppression (update rows only): for each offering, if a
+  // field's value in the EARLIEST update's `before` equals its value in the
+  // LATEST update's `after`, the field netted to no change over the window —
+  // so we suppress every line touching that field. Rows left with no remaining
+  // diffs drop out entirely. Fields with a real net change (e.g. 10→12→15→16)
+  // are untouched and still show as individual edits. Creates/deletes unaffected.
+  // (rows arrive ordered by created_at ascending, so first/last = earliest/latest.)
+  const upd={};                                   // offering_sid → [update rows]
+  rows.forEach(r=>{ if(r.action==='update'){ (upd[r.offering_sid]=upd[r.offering_sid]||[]).push(r); } });
+  const suppress={};                              // offering_sid → Set(field keys that net to zero)
+  Object.keys(upd).forEach(sid=>{
+    const list=upd[sid], first=list[0], last=list[list.length-1];
+    const fb=first.before||{}, la=last.after||{};
+    const s=new Set();
+    RP_FIELDS.forEach(([k])=>{ if(String(fb[k]??'')===String(la[k]??''))s.add(k); });
+    suppress[sid]=s;
+  });
+
   const L=[];
   L.push('SPH SCHEDULE — CHANGE REPORT');
   L.push('Range: '+from+'  →  '+to);
   if(actor)L.push('Editor: '+actor);
   L.push('Generated: '+_fmtTs(new Date().toISOString()));
-  L.push('Total changes: '+rows.length);
   L.push('='.repeat(60));
   L.push('');
-  if(!rows.length){L.push('No changes in this range.');return L.join('\n');}
+  let shown=0;
+  const body=[];
   rows.forEach(r=>{
     const who=r.actor_email||'(unknown)';
     const when=_fmtTs(r.created_at);
@@ -1585,27 +1603,34 @@ function buildReportText(rows,from,to,actor){
     const term=(a.term||b.term||'');
     const tag=r.is_undo?' [UNDO]':'';
     if(r.action==='create'){
-      L.push(when+' · '+who+tag);
-      L.push('  ADDED    '+name+(term?'  ('+term+')':''));
-      if(a.instructor1)L.push('           instructor: '+a.instructor1+(a.instructor2?' & '+a.instructor2:''));
-      if(a.days||a.time)L.push('           '+[a.days,a.time].filter(Boolean).join('  ')+(a.modality?'  ['+a.modality+']':''));
+      body.push(when+' · '+who+tag);
+      body.push('  ADDED    '+name+(term?'  ('+term+')':''));
+      if(a.instructor1)body.push('           instructor: '+a.instructor1+(a.instructor2?' & '+a.instructor2:''));
+      if(a.days||a.time)body.push('           '+[a.days,a.time].filter(Boolean).join('  ')+(a.modality?'  ['+a.modality+']':''));
+      body.push(''); shown++;
     }else if(r.action==='delete'){
-      L.push(when+' · '+who+tag);
-      L.push('  REMOVED  '+name+(term?'  ('+term+')':''));
+      body.push(when+' · '+who+tag);
+      body.push('  REMOVED  '+name+(term?'  ('+term+')':''));
+      body.push(''); shown++;
     }else{ // update
+      const sup=suppress[r.offering_sid]||new Set();
       const diffs=[];
       RP_FIELDS.forEach(([k,label])=>{
+        if(sup.has(k))return;                       // field netted to zero over the window
         const ov=String(b[k]??''), nv=String(a[k]??'');
         if(ov!==nv)diffs.push('           '+label+': "'+ov+'" → "'+nv+'"');
       });
-      if(!diffs.length)return; // nothing user-visible changed
-      L.push(when+' · '+who+tag);
-      L.push('  EDITED   '+name+(term?'  ('+term+')':''));
-      diffs.forEach(d=>L.push(d));
+      if(!diffs.length)return;                       // nothing left after suppression
+      body.push(when+' · '+who+tag);
+      body.push('  EDITED   '+name+(term?'  ('+term+')':''));
+      diffs.forEach(d=>body.push(d));
+      body.push(''); shown++;
     }
-    L.push('');
   });
-  return L.join('\n');
+  L.push('Net changes: '+shown);
+  L.push('');
+  if(!shown)return {text:L.concat(['No net changes in this range.']).join('\n'),count:0};
+  return {text:L.concat(body).join('\n'),count:shown};
 }
 
 function dlCSV(rows,fn){
