@@ -169,7 +169,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
   </header>
   <nav>
     <button class="active" data-view="schedule" id="nav-schedule">📅 Schedule</button>
-    <button data-view="gantt"       id="nav-gantt">📊 Gantt</button>
+    <button data-view="gantt"       id="nav-gantt">📊 On-Campus</button>
     <button data-view="chtool"      id="nav-chtool">📋 CHTool</button>
     <button data-view="catalog"     id="nav-catalog">📚 Catalog</button>
     <button data-view="instructors" id="nav-instructors">👤 Instructors</button>
@@ -214,7 +214,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
         <select id="g-term"><option value="Fall26">Fall 2026</option><option value="Summer26">Summer 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select>
         <select id="g-pfx"><option value="">All Programs</option></select>
         <div class="tb-sp"></div>
-        <span class="tb-hint">Bars = In-Person / Hybrid / Online (sync) · Numbers = enrollment (cap if blank)</span>
+        <span class="tb-hint">Bars = In-Person / Hybrid · Numbers = enrollment (cap if blank)</span>
       </div>
       <div class="gantt-scroll" id="gantt-wrap"></div>
     </div>
@@ -814,7 +814,10 @@ function updateEnroll(id,v){
 /* ─── GANTT ─────────────────────────────────────────────────── */
 function renderGantt(){
   const term=val('g-term'),pfx=val('g-pfx');
-  const SHOW=new Set(['In-Person','Hybrid','Online (sync)']);
+  // On-Campus chart: In-Person and Hybrid (both put students on campus for at
+  // least part of the meeting). Online (sync) has days/times but no campus
+  // presence, so it's excluded.
+  const SHOW=new Set(['In-Person','Hybrid']);
   const N=30;
   // Enrollment parse: '' / non-numeric → null (blank → falls back to cap);
   // an explicit number is used as-is. An explicit 0 means "nobody enrolled",
@@ -822,7 +825,7 @@ function renderGantt(){
   const enrNum=o=>{const s=String(o.enrollment==null?'':o.enrollment).trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
   const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&enrNum(o)!==0);
   const wrap=$('gantt-wrap');
-  if(!courses.length){wrap.innerHTML='<div class="nores">No In-Person/Hybrid/Sync courses for this filter.</div>';return;}
+  if(!courses.length){wrap.innerHTML='<div class="nores">No In-Person/Hybrid courses for this filter.</div>';return;}
   const pct=s=>((s/N)*100).toFixed(2)+'%';
   const hrlbl=si=>{const h=7+Math.floor(si/2),m=si%2?'30':'00';return m==='00'?(h<12?h+'am':h===12?'12pm':(h-12)+'pm'):''};
   let html='<div style="min-width:900px">';
