@@ -266,7 +266,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
       <div class="table-wrap">
         <table id="inst-tbl">
           <thead><tr>
-            <th>Display Name</th><th>Last</th><th>First</th><th>Category</th><th>Role</th><th>Email</th><th>EID</th>
+            <th>Display Name</th><th>Last</th><th>First</th><th>Category</th><th>Email</th><th>EID</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
           <tbody id="inst-tb"></tbody>
@@ -365,7 +365,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
       <div><label>Room #</label><input id="om-roomn"></div>
       <div><label>GR / UG / B</label><select id="om-grugb"><option>GR</option><option>UG</option><option>B</option></select></div>
       <div class="fsec">Caps &amp; Enrollment</div>
-      <div><label>CRN</label><input id="om-crn" inputmode="numeric" placeholder="e.g. 41234"><div class="fhint">Registration number (digits only)</div></div>
+      <div><label>CRN</label><input id="om-crn" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">Registration number(s) — separate multiple with commas</div></div>
       <div><label>Total Cap</label><input id="om-cap" type="number"></div>
       <div><label>Enrollment (actual)</label><input id="om-enroll" type="number"><div class="fhint">Fill on Day 1 of term</div></div>
       <div><label>OHSU Cap 1</label><input id="om-o1" type="number"></div>
@@ -425,7 +425,6 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
       <div><label>First Name</label><input id="im-first"></div>
       <div class="s2"><label>Display Name</label><input id="im-dn"><div class="fhint">Auto: Last F. — extended if duplicate: Last Fi., Last Fir.</div></div>
       <div><label>Category</label><select id="im-cat"><option>OHSU Primary</option><option>OHSU Adjunct</option><option>NPS</option><option>PSU TTF</option><option>PSU NTTF</option><option>PSU Adjunct</option><option>Staff</option><option>Other</option><option>TBD</option></select></div>
-      <div><label>Role</label><input id="im-role" placeholder="e.g. Primary, Adjunct"></div>
       <div class="s2"><label>Email</label><input id="im-email" type="email"></div>
       <div class="s2"><label>Email 2 / OHSU Email</label><input id="im-email2" type="email"></div>
       <div><label>EID</label><input id="im-eid"></div>
@@ -579,9 +578,10 @@ const t2s=t=>{
   return{start:(p(m[1])-420)/30,end:(p(m[2])-420)/30};
 };
 // Group C helpers.
-const TBD_NAMES=new Set(['TBD OH.','TBD PS.']);
+const TBD_NAMES=new Set(['TBD OH.','TBD PS.','TBD O.','TBD P.']);
+const isTBD=n=>{const s=String(n||'').trim();return TBD_NAMES.has(s)||/^TBD\b/i.test(s);};
 function isIncomplete(o){
-  if(!o.instructor1||TBD_NAMES.has(o.instructor1))return true;
+  if(!o.instructor1||isTBD(o.instructor1))return true;
   if(!String(o.days||'').trim())return true;
   if(!String(o.modality||'').trim())return true;
   if(!String(o.totalCap||'').trim())return true;
@@ -809,12 +809,14 @@ function renderSched(){
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
     const potBadge=(o.term==='Summer26'&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
+    const _crs=DB.courses.find(c=>c.id===o.courseId);
+    const permReq=(_crs&&_crs.permission==='Yes')?' <span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
     const incomplete=isIncomplete(o);
     const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing instructor, days, modality, or cap (or instructor is TBD)">⚠</span>':'';
     const flags=(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''}>
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${permReq}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -1210,16 +1212,16 @@ function renderInst(){
     if(q&&!(i.displayName+' '+i.lastName+' '+i.firstName).toLowerCase().includes(q))return false;
     return true;
   }).sort((a,b)=>(a.lastName??'').localeCompare(b.lastName??''));
-  if(!instrs.length){$('inst-tb').innerHTML=`<tr><td colspan="8" class="nores">No instructors match.</td></tr>`;return;}
+  if(!instrs.length){$('inst-tb').innerHTML=`<tr><td colspan="7" class="nores">No instructors match.</td></tr>`;return;}
   let h='';
   const assigned=new Set();
   DB.offerings.forEach(o=>{if(o.instructor1)assigned.add(o.instructor1);if(o.instructor2)assigned.add(o.instructor2);});
   instrs.forEach(i=>{
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
-    const notUsed=!i.isPlaceholder&&!TBD_NAMES.has(i.displayName)&&!assigned.has(i.displayName);
+    const notUsed=!i.isPlaceholder&&!isTBD(i.displayName)&&!assigned.has(i.displayName);
     const flag=notUsed?' <span class="flag-warn" title="Not assigned to any offering on the Schedule">⚠</span>':'';
     h+=`<tr><td><strong>${esc(i.displayName)}</strong>${flag}</td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
-      <td>${esc(i.category)}</td><td>${esc(i.role)}</td><td style="font-size:11px">${esc(i.email)}</td>
+      <td>${esc(i.category)}</td><td style="font-size:11px">${esc(i.email)}</td>
       <td style="font-size:11px">${esc(i.eid)}</td>${eb}</tr>`;
   });
   $('inst-tb').innerHTML=h;
@@ -1431,7 +1433,7 @@ function saveOff(){
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:val('om-grugb'),totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
-    crn:val('om-crn').replace(/\D/g,''),printStatus:val('om-print')||'Print',
+    crn:val('om-crn').replace(/[^0-9,\s]/g,'').split(',').map(s=>s.trim()).filter(Boolean).join(', '),printStatus:val('om-print')||'Print',
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
   const row=offRow(data);
   if(eidO){
@@ -1568,9 +1570,9 @@ function openIM(id){
   if(id){
     const i=DB.instructors.find(x=>x.id===id);if(!i)return;
     setv('im-last',i.lastName);setv('im-first',i.firstName);setv('im-dn',i.displayName);
-    setv('im-cat',i.category);setv('im-role',i.role);setv('im-email',i.email);
+    setv('im-cat',i.category);setv('im-email',i.email);
     setv('im-email2',i.email2??'');setv('im-eid',i.eid??'');
-  }else{['im-last','im-first','im-dn','im-role','im-email','im-email2','im-eid'].forEach(f=>setv(f,''));}
+  }else{['im-last','im-first','im-dn','im-email','im-email2','im-eid'].forEach(f=>setv(f,''));}
   // Name/email/EID live in the shared faculty record (faculty app owns them).
   // Editing existing → those are read-only here; only category + role persist.
   // Adding new → name + email feed the create_instructor RPC; email2/EID are
@@ -1593,16 +1595,18 @@ function autoDN(){
 }
 function saveInst(){
   const last=val('im-last').trim();if(!last){alert('Last name required.');return;}
-  const cat=val('im-cat'),role=val('im-role').trim();
+  const cat=val('im-cat');
   if(eidI){
-    // Existing → scheduling app writes only instructor_meta (category + role).
+    // Existing → scheduling app writes only instructor_meta category. Role is no
+    // longer edited here; we leave the stored role untouched (category only).
     const idx=DB.instructors.findIndex(x=>x.id===eidI);
-    if(idx>=0){DB.instructors[idx].category=cat;DB.instructors[idx].role=role;}
+    if(idx>=0){DB.instructors[idx].category=cat;}
     closeM('mo-inst');renderInst();
-    sbSave(sb.from('instructor_meta').update({fte_category:cat||null,role:role||null}).eq('faculty_id',eidI),'● Instructor saved');
+    sbSave(sb.from('instructor_meta').update({fte_category:cat||null}).eq('faculty_id',eidI),'● Instructor saved');
   }else{
     // New → create faculty + instructor_meta atomically via the RPC.
     const first=val('im-first').trim(),email=val('im-email').trim();
+    const role='';   // role deprecated in UI; new rows start blank
     const dupe=DB.instructors.find(x=>x.lastName.toLowerCase()===last.toLowerCase()&&(x.firstName||'').toLowerCase()===first.toLowerCase());
     const doCreate=async()=>{
       setSS('Adding instructor…');
@@ -1735,7 +1739,7 @@ async function genReport(){
 // Field labels for human-readable diff lines (snapshot key → label).
 const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','Instructor 2'],
   ['days','Days'],['time','Time'],['modality','Modality'],['roomed','Where Roomed'],
-  ['roomNumber','Room #'],['grugb','GR/UG/B'],['totalCap','Total Cap'],['enrollment','Enrollment'],
+  ['roomNumber','Room #'],['grugb','GR/UG/B'],['totalCap','Total Cap'],
   ['crn','CRN'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
   ['psuCap1','PSU Cap 1'],['psuCap2','PSU Cap 2'],['restrictOhsu','Restrict OHSU'],
   ['restrictPsu','Restrict PSU'],['psuText','PSU Text'],['adminNotes','Admin Notes'],['pot','POT']];
