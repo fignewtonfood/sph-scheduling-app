@@ -1134,19 +1134,28 @@ function snapOff(o){
 function logChange(action,before,after,uuid,opts){
   opts=opts||{};
   const sid=(after&&after.id)||(before&&before.id)||null;
+  // Push non-undo changes onto the session undo stack first (synchronous, so
+  // the Undo button updates immediately). Keep a reference so we can attach
+  // the log row's id once the insert resolves — that id is what a future undo
+  // records as reverts_id, letting the report pair and drop both.
+  let entry=null;
+  if(!opts.isUndo){
+    entry={action,before,after,uuid,logId:null};
+    undoStack.push(entry);
+    if(undoStack.length>50)undoStack.shift();   // cap memory; deep enough for any session
+    updateUndoBtn();
+  }
   // Write the audit row. Don't block the UI on it; if it fails (e.g. table
   // not migrated yet), the edit itself still stands — we just warn quietly.
   if(sb){
     sb.from('change_log').insert({
       actor_email:currentUserEmail, offering_sid:sid, action,
-      before:before||null, after:after||null, is_undo:!!opts.isUndo
-    }).then(({error})=>{ if(error)console.warn('change_log insert failed:',error.message); });
-  }
-  // Only real (non-undo) changes go on the undo stack.
-  if(!opts.isUndo){
-    undoStack.push({action,before,after,uuid});
-    if(undoStack.length>50)undoStack.shift();   // cap memory; deep enough for any session
-    updateUndoBtn();
+      before:before||null, after:after||null,
+      is_undo:!!opts.isUndo, reverts_id:opts.revertsId||null
+    }).select('id').single().then(({data,error})=>{
+      if(error){console.warn('change_log insert failed:',error.message);return;}
+      if(entry&&data)entry.logId=data.id;   // remember which log row this change created
+    });
   }
 }
 function updateUndoBtn(){
@@ -1174,7 +1183,7 @@ async function undoLast(){
       renderSched();renderCat();
       const {error}=await sb.from('offerings').delete().eq('id',e.uuid);
       if(error){setSS('⚠ Undo failed: '+error.message);await reloadAll();return;}
-      logChange('delete',e.after,null,e.uuid,{isUndo:true});
+      logChange('delete',e.after,null,e.uuid,{isUndo:true,revertsId:e.logId});
       popUndo();setSS('↶ Undid: added '+(e.after&&e.after.fullName||'offering'));
     }else if(e.action==='update'){
       // Reverse an update → restore the 'before' snapshot.
@@ -1187,7 +1196,7 @@ async function undoLast(){
       const idx=DB.offerings.findIndex(o=>o._uuid===e.uuid);
       if(idx>=0){const restored={...e.before,_uuid:e.uuid};DB.offerings[idx]=restored;}
       renderSched();renderCat();
-      logChange('update',e.after,e.before,e.uuid,{isUndo:true});
+      logChange('update',e.after,e.before,e.uuid,{isUndo:true,revertsId:e.logId});
       popUndo();setSS('↶ Undid change to '+(e.before&&e.before.fullName||'offering'));
     }else if(e.action==='delete'){
       // Reverse a delete → re-insert the 'before' snapshot as a new row.
@@ -1196,7 +1205,7 @@ async function undoLast(){
       if(error){setSS('⚠ Undo failed: '+error.message);await reloadAll();return;}
       const restored={...e.before,_uuid:ins.id,id:ins.source_id||ins.id};
       DB.offerings.push(restored);renderSched();renderCat();
-      logChange('create',null,snapOff(restored),ins.id,{isUndo:true});
+      logChange('create',null,snapOff(restored),ins.id,{isUndo:true,revertsId:e.logId});
       popUndo();setSS('↶ Undid: restored '+(e.before&&e.before.fullName||'offering'));
     }
   }catch(err){setSS('⚠ Undo error: '+err.message);await reloadAll();}
@@ -1526,12 +1535,17 @@ async function genReport(){
   const fromISO=new Date(fromStr+'T00:00:00').toISOString();
   const toISO=toStr?new Date(toStr+'T23:59:59').toISOString():new Date().toISOString();
   $('rp-status').textContent='Generating…';
-  let q=sb.from('change_log').select('*').gte('created_at',fromISO).lte('created_at',toISO)
+  // Fetch everything in range (undo rows included) so we can pair undos with
+  // the originals they reversed, then drop BOTH — leaving only net changes.
+  let q=sb.from('change_log').select('*')
+        .gte('created_at',fromISO).lte('created_at',toISO)
         .order('created_at',{ascending:true});
   if(actor)q=q.eq('actor_email',actor);
   const {data,error}=await q;
   if(error){$('rp-status').textContent='⚠ '+error.message;return;}
-  const rows=data||[];
+  const all=data||[];
+  const reverted=new Set(all.filter(r=>r.is_undo&&r.reverts_id).map(r=>r.reverts_id));
+  const rows=all.filter(r=>!r.is_undo && !reverted.has(r.id));  // net changes only
   const txt=buildReportText(rows,fromStr,toStr||'(now)',actor);
   // Download as .txt
   const a=document.createElement('a');
