@@ -125,6 +125,14 @@ td{padding:7px 10px;vertical-align:middle}
 
 /* Notes tooltip */
 .has-notes { cursor: help; border-bottom: 1px dotted var(--teal); }
+tbody tr.incomplete td{background:#FEF3C7}
+tbody tr.incomplete:hover td{background:#FDE9A9}
+tbody tr.no-off td{color:#94A3B8}
+tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
+.flag-warn{color:#B45309;font-size:12px;cursor:help}
+.flag-off{color:#DC2626;font-size:11px;cursor:help}
+#enr-banner{background:var(--ltgold);border-bottom:1px solid #F0C674;color:#92400E;padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+#enr-banner button{margin-left:auto;background:none;border:none;color:#92400E;font-size:16px;cursor:pointer;line-height:1;padding:0 4px}
 .tooltip {
   position: absolute; z-index: 500;
   background: #1E293B; color: white;
@@ -178,6 +186,7 @@ td{padding:7px 10px;vertical-align:middle}
         <select id="f-mod"><option value="">All Modalities</option><option>Online (async)</option><option>Online (sync)</option><option>Hybrid</option><option>In-Person</option><option>By Arrangement</option><option>Dept Arranged</option><option>Attend Anywhere</option></select>
         <select id="f-level"><option value="">All Levels</option><option value="GR">Graduate</option><option value="UG">Undergraduate</option></select>
         <input type="search" id="f-q" placeholder="Search…" style="width:200px">
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dgray);cursor:pointer;white-space:nowrap"><input type="checkbox" id="f-incomplete" style="margin:0;cursor:pointer"> ⚠ Incomplete only</label>
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-off" style="display:none">+ Add Offering</button>
         <button class="btn btn-s" id="btn-exp-sched">⬇ CSV</button>
@@ -185,12 +194,13 @@ td{padding:7px 10px;vertical-align:middle}
         <button class="btn btn-s admin-only" id="btn-reset" style="display:none;font-size:11px;color:var(--red);border-color:var(--red)">↺ Reset</button>
         <span id="sched-ct" style="font-size:12px;color:var(--dgray)"></span>
       </div>
+      <div id="enr-banner" style="display:none"></div>
       <div class="table-wrap">
         <table id="sched-tbl">
           <thead><tr>
             <th data-col="term">Term</th><th data-col="prefix">Prefix</th><th data-col="fullName">Course</th>
             <th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
-            <th data-col="modality">Modality</th><th data-col="totalCap">Cap</th><th>Enroll</th>
+            <th data-col="modality">Modality</th><th style="text-align:center" title="Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
           <tbody id="sched-tb"></tbody>
@@ -546,6 +556,24 @@ const t2s=t=>{
   const p=s=>{s=s.padStart(4,'0');return parseInt(s.slice(0,2))*60+parseInt(s.slice(2));};
   return{start:(p(m[1])-420)/30,end:(p(m[2])-420)/30};
 };
+// Group C helpers.
+const TBD_NAMES=new Set(['TBD OH.','TBD PS.']);
+function isIncomplete(o){
+  if(!o.instructor1||TBD_NAMES.has(o.instructor1))return true;
+  if(!String(o.days||'').trim())return true;
+  if(!String(o.modality||'').trim())return true;
+  if(!String(o.totalCap||'').trim())return true;
+  return false;
+}
+// Start time (in minutes) parsed from the time field; null if none. Night ≥ 960 (16:00).
+function startMin(t){
+  const m=String(t||'').match(/(\d{3,4})/);
+  if(!m)return null;
+  const s=m[1].padStart(4,'0');
+  return parseInt(s.slice(0,2))*60+parseInt(s.slice(2));
+}
+const isNight=o=>{const s=startMin(o.time);return s!=null&&s>=960;};
+const isOnline=o=>o.modality==='Online (async)'||o.modality==='Online (sync)';
 function fillSel(id,items,vfn,lfn,blank){
   const s=$(id);if(!s)return;
   if(blank!==undefined)s.innerHTML=`<option value="">${esc(blank)}</option>`;
@@ -728,6 +756,7 @@ function renderSched(){
     if(mod&&o.modality!==mod)return false;
     if(lvl){const g=o.grugb||'';if(lvl==='GR'&&!(g==='GR'||g==='B'))return false;if(lvl==='UG'&&!(g==='UG'||g==='B'))return false;}
     if(q&&!(`${o.fullName} ${o.instructor1} ${o.instructor2}`).toLowerCase().includes(q))return false;
+    if($('f-incomplete')?.checked&&!isIncomplete(o))return false;
     return true;
   });
   rows.sort((a,b)=>{
@@ -744,11 +773,11 @@ function renderSched(){
     th.classList.remove('sa','sd');
     if(th.dataset.col===sortCol)th.classList.add(sortDir===1?'sa':'sd');
   });
-  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="10" class="nores">No offerings match filters.</td></tr>`;return;}
+  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="11" class="nores">No offerings match filters.</td></tr>`;return;}
   let h='',lt=null,lp=null;
   rows.forEach(o=>{
-    if(o.term!==lt){h+=`<tr class="gt"><td colspan="10">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
-    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="10">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
+    if(o.term!==lt){h+=`<tr class="gt"><td colspan="11">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
+    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="11">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
     const i2=o.instructor2?` &amp; ${esc(o.instructor2)}`:'';
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button></td>`:'';
     const ro=isAdmin?'':'readonly';
@@ -757,11 +786,14 @@ function renderSched(){
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
     const potBadge=(o.term==='Summer26'&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
-    h+=`<tr>
+    const incomplete=isIncomplete(o);
+    const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing instructor, days, modality, or cap (or instructor is TBD)">⚠</span>':'';
+    const flags=(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
+    h+=`<tr${incomplete?' class="incomplete"':''}>
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
-      <td>${modPill(o.modality)}</td><td style="text-align:center">${esc(o.totalCap)}</td>
+      <td>${modPill(o.modality)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
       ${eb}
     </tr>`;
@@ -909,7 +941,8 @@ function renderCat(){
   let h='';
   courses.forEach(c=>{
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm ec" data-id="${esc(c.id)}">Edit</button></td>`:'';
-    h+=`<tr>
+    const noOff=!DB.offerings.some(o=>o.courseId===c.id);
+    h+=`<tr${noOff?' class="no-off" title="No offerings scheduled in any term"':''}>
       <td><strong>${esc(c.prefix)}</strong></td>
       <td>${esc(c.number)}${c.number2?'/'+esc(c.number2):''}</td>
       <td style="max-width:240px">${esc(c.title)}</td>
@@ -969,9 +1002,13 @@ function renderInst(){
   }).sort((a,b)=>(a.lastName??'').localeCompare(b.lastName??''));
   if(!instrs.length){$('inst-tb').innerHTML=`<tr><td colspan="8" class="nores">No instructors match.</td></tr>`;return;}
   let h='';
+  const assigned=new Set();
+  DB.offerings.forEach(o=>{if(o.instructor1)assigned.add(o.instructor1);if(o.instructor2)assigned.add(o.instructor2);});
   instrs.forEach(i=>{
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
-    h+=`<tr><td><strong>${esc(i.displayName)}</strong></td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
+    const notUsed=!i.isPlaceholder&&!TBD_NAMES.has(i.displayName)&&!assigned.has(i.displayName);
+    const flag=notUsed?' <span class="flag-warn" title="Not assigned to any offering on the Schedule">⚠</span>':'';
+    h+=`<tr><td><strong>${esc(i.displayName)}</strong>${flag}</td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
       <td>${esc(i.category)}</td><td>${esc(i.role)}</td><td style="font-size:11px">${esc(i.email)}</td>
       <td style="font-size:11px">${esc(i.eid)}</td>${eb}</tr>`;
   });
@@ -1426,6 +1463,22 @@ function initDropdowns(){
   applyAllLists();
 }
 
+/* ─── ENROLLMENT REMINDER BANNER ────────────────────────────────
+   Shows during days 1–14 of term-start months (Jan/Apr/Jul/Oct),
+   nudging PDs to enter actual enrollment. Dismissible per session
+   only (a page reload brings it back within the window). */
+let enrBannerDismissed=false;
+function maybeShowEnrBanner(){
+  const el=$('enr-banner');if(!el)return;
+  const now=new Date(),mo=now.getMonth(),day=now.getDate();
+  const inWindow=[0,3,6,9].includes(mo)&&day<=14;   // Jan=0, Apr=3, Jul=6, Oct=9
+  if(!inWindow||enrBannerDismissed){el.style.display='none';return;}
+  el.innerHTML='<span>📋 Term is starting — remember to enter <strong>actual enrollment</strong> for this term\'s offerings.</span>'
+    +'<button id="enr-x" title="Dismiss for this session">×</button>';
+  el.style.display='flex';
+  $('enr-x').addEventListener('click',()=>{enrBannerDismissed=true;el.style.display='none';});
+}
+
 /* ─── EVENT WIRING ──────────────────────────────────────────── */
 function wireEvents(){
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
@@ -1440,6 +1493,7 @@ function wireEvents(){
   // Schedule
   ['f-term','f-pfx','f-mod','f-level'].forEach(id=>$(id).addEventListener('change',renderSched));
   $('f-q').addEventListener('input',renderSched);
+  $('f-incomplete').addEventListener('change',renderSched);
   $('btn-add-off').addEventListener('click',()=>openOM(null));
   $('btn-exp-sched').addEventListener('click',expSched);
   $('btn-reset').addEventListener('click',resetSeed);
@@ -1594,6 +1648,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   initDropdowns();
   await refreshAdmin();        // sets admin/viewer based on session
   renderAll();
+  maybeShowEnrBanner();
   setLM('');
   if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL)||SUPABASE_ANON_KEY.startsWith('YOUR-')){
     setSS('⚠ Set SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file');
