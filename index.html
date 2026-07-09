@@ -832,7 +832,7 @@ function updateEnroll(id,v){
     const s=String(v).trim();
     const iv=s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);
     sbSave(sb.from('offerings').update({enrollment:iv}).eq('id',o._uuid),'● Enrollment saved')
-      .then(ok=>{if(ok!==null)logChange('update',before,snapOff(o),o._uuid);});
+      .then(ok=>{if(ok)logChange('update',before,snapOff(o),o._uuid);});
   }
 }
 
@@ -1001,7 +1001,7 @@ function toggleOff(cid,pfx,term){
       renderCat();renderSched();
       if(uuid){
         const ok=await sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering removed');
-        if(ok!==null)logChange('delete',before,null,uuid);
+        if(ok)logChange('delete',before,null,uuid);
       }
     };
     if(ex.instructor1||ex.days||ex.modality){
@@ -1101,11 +1101,14 @@ async function reloadAll(){
   catch(e){setSS('⚠ Reload failed: '+e.message);}
 }
 async function sbSave(promise,okMsg){
+  // Returns true on success, false on failure. (Update/delete queries resolve
+  // with data===null even on success, so we must NOT use data as the success
+  // signal — the presence/absence of `error` is the only reliable indicator.)
   try{
-    const {data,error}=await promise;
-    if(error){setSS('⚠ Not saved: '+(error.message||'permission denied')+' — reverting');await reloadAll();return null;}
-    setSS(okMsg||'● Saved');return data===undefined?true:data;
-  }catch(e){setSS('⚠ Not saved: '+e.message+' — reverting');await reloadAll();return null;}
+    const {error}=await promise;
+    if(error){setSS('⚠ Not saved: '+(error.message||'permission denied')+' — reverting');await reloadAll();return false;}
+    setSS(okMsg||'● Saved');return true;
+  }catch(e){setSS('⚠ Not saved: '+e.message+' — reverting');await reloadAll();return false;}
 }
 const _facIdByDisp=dn=>{if(!dn)return null;const i=DB.instructors.find(x=>x.displayName===dn);return i?i.facultyId:null;};
 const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:null;};
@@ -1255,7 +1258,7 @@ function saveOff(){
     closeM('mo-off');renderSched();
     if(!uuid){setSS('⚠ Missing row id — reverting');reloadAll();return;}
     sbSave(sb.from('offerings').update(row).eq('id',uuid),'● Offering saved')
-      .then(ok=>{if(ok!==null)logChange('update',before,snapOff(data),uuid);});
+      .then(ok=>{if(ok)logChange('update',before,snapOff(data),uuid);});
   }else{
     // New → insert, then add locally with the returned UUID.
     setSS('Saving…');
@@ -1272,7 +1275,7 @@ function delOff(){showCfm('Delete offering?','This will permanently remove this 
   const before=snapOff(o);
   DB.offerings=DB.offerings.filter(x=>x.id!==eidO);closeM('mo-off');renderSched();
   if(uuid)sbSave(sb.from('offerings').delete().eq('id',uuid),'● Offering deleted')
-    .then(ok=>{if(ok!==null)logChange('delete',before,null,uuid);});
+    .then(ok=>{if(ok)logChange('delete',before,null,uuid);});
 });}
 
 /* ─── COURSE MODAL ──────────────────────────────────────────── */
@@ -1325,7 +1328,7 @@ async function saveCrs(){
   if(eidC&&uuid){
     const idx=DB.courses.findIndex(x=>x.id===eidC);if(idx>=0)DB.courses[idx]=data;
     const r=await sbSave(sb.from('courses').update(row).eq('id',uuid),'● Course saved');
-    if(r===null)return;                       // reverted on error
+    if(!r)return;                       // reverted on error
   }else{
     const {data:ins,error}=await sb.from('courses').insert(row).select().single();
     if(error){setSS('⚠ Not added: '+error.message);return;}
