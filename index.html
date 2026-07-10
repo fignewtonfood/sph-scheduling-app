@@ -1307,6 +1307,13 @@ function snapOff(o){
   if(!o)return null;
   const s={}; SNAP_KEYS.forEach(k=>{s[k]=o[k]??'';}); return s;
 }
+// True when the ONLY field that differs between two snapshots is enrollment
+// (or nothing differs at all). Used to keep enroll-only edits out of the audit
+// trail. All non-enrollment keys must match; enrollment is deliberately ignored.
+function _onlyEnrollChanged(before,after){
+  if(!before||!after)return false;   // create/delete are never "enroll-only"
+  return SNAP_KEYS.every(k=>k==='enrollment'||String(before[k]??'')===String(after[k]??''));
+}
 // Record a change to change_log (fire-and-forget) and push to the undo stack.
 // action: 'create' | 'update' | 'delete'. before/after are snapshots (or null).
 // uuid is the offering's DB UUID (needed to reverse update/delete).
@@ -1317,6 +1324,8 @@ function logChange(action,before,after,uuid,opts){
   // the Undo button updates immediately). Keep a reference so we can attach
   // the log row's id once the insert resolves — that id is what a future undo
   // records as reverts_id, letting the report pair and drop both.
+  // NOTE: enroll-only edits ARE pushed here so Undo still works for them — they
+  // just skip the audit-row write below.
   let entry=null;
   if(!opts.isUndo){
     entry={action,before,after,uuid,logId:null};
@@ -1324,6 +1333,12 @@ function logChange(action,before,after,uuid,opts){
     if(undoStack.length>50)undoStack.shift();   // cap memory; deep enough for any session
     updateUndoBtn();
   }
+  // Skip the audit trail for enroll-only updates. Enrollment is entered inline
+  // for hundreds of offerings each term and never appears in the Change Report,
+  // so persisting those edits would only flood change_log. Undo still covers
+  // them via the stack above; the reversal is also enroll-only, so it likewise
+  // writes no row — no orphan [UNDO] entries. Creates/deletes are unaffected.
+  if(action==='update'&&_onlyEnrollChanged(before,after))return;
   // Write the audit row. Don't block the UI on it; if it fails (e.g. table
   // not migrated yet), the edit itself still stands — we just warn quietly.
   if(sb){
