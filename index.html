@@ -475,6 +475,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       </div>
     </div>
     <div class="mft">
+      <span id="tm-msg" style="margin-right:auto;font-size:12px;line-height:1.4"></span>
       <button class="btn btn-s" data-close="mo-terms">Close</button>
       <button class="btn btn-p" id="btn-tm-save">Save Term Settings</button>
     </div>
@@ -993,6 +994,7 @@ const catCols=()=>9+TERMS.length+(canEdit()?1:0);
    editable implies visible, public implies pd-visible — so the UI mirrors them
    rather than trusting itself. */
 function openTerms(){
+  setTM('');
   renderTermRows();
   renderNewAY();
   openM('mo-terms');
@@ -1051,20 +1053,28 @@ function renderTermRows(){
 }
 
 async function saveTermFlags(){
-  const byCode={};
-  document.querySelectorAll('#tm-body .tf').forEach(cb=>{
-    (byCode[cb.dataset.code]=byCode[cb.dataset.code]||{})[cb.dataset.f]=cb.checked;
-  });
-  setSS('Saving terms…');
-  for(const [code,flags] of Object.entries(byCode)){
-    const cur=termRow(code);
-    if(cur&&['is_public','is_pd_visible','is_pd_editable'].every(f=>!!cur[f]===!!flags[f]))continue; // unchanged
-    const ok=await sbSave(sb.from('terms').update(flags).eq('code',code),null);
-    if(!ok)return;
+  setTM('');
+  try{
+    const byCode={};
+    document.querySelectorAll('#tm-body .tf').forEach(cb=>{
+      (byCode[cb.dataset.code]=byCode[cb.dataset.code]||{})[cb.dataset.f]=cb.checked;
+    });
+    setTM('Saving…');
+    let changed=0;
+    for(const [code,flags] of Object.entries(byCode)){
+      const cur=termRow(code);
+      if(cur&&['is_public','is_pd_visible','is_pd_editable'].every(f=>!!cur[f]===!!flags[f]))continue;
+      const {error}=await sb.from('terms').update(flags).eq('code',code);
+      if(error){setTM(error.message,true);return;}
+      changed++;
+    }
+    closeM('mo-terms');
+    await reloadAll();
+    rebuildTermUI();renderAll();
+    setSS(changed?`● ${changed} term${changed===1?'':'s'} updated`:'No changes');
+  }catch(e){
+    setTM('Failed: '+(e&&e.message?e.message:String(e)),true);
   }
-  setSS('● Term settings saved');
-  closeM('mo-terms');
-  await reloadAll();
 }
 
 /* AY27-28 → Summer27, Fall27, Winter28, Spring28.
@@ -1111,24 +1121,40 @@ function refreshNYTerms(){
     : 'Creates the terms with no offerings. Use this for an archival year you intend to populate separately.';
 }
 
-async function createAY(){
-  const ay=val('ny-ay').trim();
-  if(!ay){setSS('⚠ Enter an academic year');return;}
-  const codes=[...document.querySelectorAll('.ny-code')].map(e=>e.value.trim());
-  const labels=[...document.querySelectorAll('.ny-label')].map(e=>e.value.trim());
-  if(!codes.length||codes.some(c=>!c)){setSS('⚠ Every term needs a code');return;}
-  const terms=codes.map((c,i)=>({code:c,label:labels[i]||c,sort_order:i+1}));
-  const src=val('ny-copy')||null;
+/* The status bar lives in the header, BEHIND the modal overlay — a message sent
+   there while a modal is open is invisible. Modal actions must report inside
+   the modal. */
+function setTM(msg,bad){
+  const e=$('tm-msg');
+  if(!e)return;
+  e.textContent=msg||'';
+  e.style.color=bad?'var(--red)':'var(--dgray)';
+}
 
-  setSS('Creating…');
-  const {data,error}=await sb.rpc('create_academic_year',
-    {p_ay:ay,p_terms:terms,p_copy_from:src});
-  if(error){setSS('⚠ '+error.message);return;}
-  const n=(data&&data.offerings_copied)||0;
-  closeM('mo-terms');
-  await reloadAll();
-  activeAY=ay;applyAY();rebuildTermUI();renderAll();
-  setSS(`● ${ay} created — ${n} offering${n===1?'':'s'} copied`);
+async function createAY(){
+  setTM('');
+  try{
+    const ay=val('ny-ay').trim();
+    if(!ay){setTM('Enter an academic year, e.g. AY27-28',true);return;}
+    const codes=[...document.querySelectorAll('.ny-code')].map(e=>e.value.trim());
+    const labels=[...document.querySelectorAll('.ny-label')].map(e=>e.value.trim());
+    if(!codes.length||codes.some(c=>!c)){setTM('Every term needs a code',true);return;}
+    const terms=codes.map((c,i)=>({code:c,label:labels[i]||c,sort_order:i+1}));
+    const src=val('ny-copy')||null;
+
+    setTM('Creating '+ay+'…');
+    const {data,error}=await sb.rpc('create_academic_year',
+      {p_ay:ay,p_terms:terms,p_copy_from:src});
+    if(error){setTM(error.message,true);return;}
+
+    const n=(data&&data.offerings_copied)||0;
+    closeM('mo-terms');
+    await reloadAll();
+    activeAY=ay;applyAY();rebuildTermUI();renderAll();
+    setSS(`● ${ay} created — ${n} offering${n===1?'':'s'} copied`);
+  }catch(e){
+    setTM('Failed: '+(e&&e.message?e.message:String(e)),true);
+  }
 }
 
 function delAY(ay){
@@ -1137,7 +1163,7 @@ function delAY(ay){
     `Delete ${ay} and its ${n} offering${n===1?'':'s'}?`,
     async()=>{
       const {error}=await sb.rpc('delete_academic_year',{p_ay:ay});
-      if(error){setSS('⚠ '+error.message);return;}
+      if(error){setTM(error.message,true);openM('mo-terms');return;}
       closeM('mo-terms');
       activeAY='';
       await reloadAll();
