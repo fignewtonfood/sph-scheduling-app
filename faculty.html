@@ -153,6 +153,9 @@ tbody tr.clickable{cursor:pointer}
         <label style="font-size:12px;color:var(--dgray);display:flex;align-items:center;gap:5px">
           <input type="checkbox" id="f-teach"> Teaching this year
         </label>
+        <label id="f-inact-wrap" style="font-size:12px;color:var(--dgray);display:none;align-items:center;gap:5px">
+          <input type="checkbox" id="f-inact"> Show inactive
+        </label>
         <button class="btn btn-p btn-s admin-only" id="btn-add">+ Add Faculty</button>
         <button class="btn btn-s admin-only" id="btn-log">📄 Change Log</button>
         <span class="cnt" id="dir-cnt"></span>
@@ -396,11 +399,19 @@ function fillFilters(){
   fill('f-unit',units,'All units');
 }
 
+/* Inactive = holds the 'Inactive' category. Anon never receives these rows at
+   all (the faculty_public view excludes them, along with uncategorized people),
+   so this toggle only ever matters to signed-in users. */
+const isInactive=f=>(f.categories||[]).includes('Inactive');
+
 function filtered(){
   const q=val('f-q').toLowerCase().trim(),
         cat=val('f-cat'), unit=val('f-unit'),
-        teachOnly=$('f-teach').checked;
+        teachOnly=$('f-teach').checked,
+        showInact=$('f-inact').checked;
   return FAC.filter(f=>{
+    // Explicitly filtering TO the Inactive category overrides the hide-by-default.
+    if(!showInact&&cat!=='Inactive'&&isInactive(f))return false;
     if(cat&&!(f.categories||[]).includes(cat))return false;
     if(unit&&f.sph_unit!==unit)return false;
     if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
@@ -784,6 +795,9 @@ function updateAuthBar(){
   }
   $('tier-badge').classList.toggle('on',isAdmin());
   document.body.classList.toggle('is-admin',isAdmin());
+  // Anon never has inactive/uncategorized rows to reveal, so the toggle would
+  // be a lie. Only signed-in tiers get it.
+  $('f-inact-wrap').style.display=(TIER==='public')?'none':'flex';
 }
 
 /* ─── RELOAD ───────────────────────────────────────────────── */
@@ -794,7 +808,7 @@ async function reload(){
 
 /* ─── WIRING ───────────────────────────────────────────────── */
 function wire(){
-  ['f-q','f-cat','f-unit','f-teach'].forEach(id=>{
+  ['f-q','f-cat','f-unit','f-teach','f-inact'].forEach(id=>{
     const e=$(id);if(!e)return;
     e.addEventListener(id==='f-q'?'input':'change',renderDir);
   });
