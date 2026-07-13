@@ -130,6 +130,14 @@ tbody tr.incomplete:hover td{background:#FDE9A9}
 tbody tr.no-off td{color:#94A3B8}
 tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
 .flag-warn{color:#B45309;font-size:12px;cursor:help}
+/* ── SIGNED-OUT GATING ──────────────────────────────────────────
+   The app previously knew only two states (admin / read-only). Anonymous
+   visitors are a THIRD state: they get a reduced schedule, no export, no
+   CHTool, no Instructors, and no internal-only catalog columns. A signed-in
+   non-admin still sees all of it — they just can't edit.
+   Driven by body.signed-out so a single class flips everything at once. */
+body.signed-out .auth-only{display:none!important}
+body.signed-out .col-internal{display:none!important}
 /* Instructor name → faculty profile. Styled as a quiet link: underlined only on
    hover, so a table full of names doesn't turn into a wall of blue. */
 a.ilink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray);cursor:pointer}
@@ -168,7 +176,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 
 <div id="app" style="display:none">
   <header>
-    <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026–27</div></div>
+    <div><h1>SPH Course Scheduling</h1><div class="sub" id="hdr-sub">Academic Year 2026–27</div></div>
+    <select id="ay-sel" style="display:none;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:white;margin-left:14px"></select>
     <div class="hsp"></div>
     <a href="faculty.html" style="color:#CBD5E1;font-size:12px;text-decoration:none;border:1px solid rgba(255,255,255,.25);padding:4px 10px;border-radius:4px;margin-right:6px" title="Faculty directory">👤 Faculty</a>
     <span id="auth-slot" style="display:inline-flex;align-items:center;gap:8px;margin-right:6px"></span>
@@ -180,9 +189,9 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
   <nav>
     <button class="active" data-view="schedule" id="nav-schedule">📅 Schedule</button>
     <button data-view="gantt"       id="nav-gantt">📊 On-Campus</button>
-    <button data-view="chtool"      id="nav-chtool">📋 CHTool</button>
+    <button data-view="chtool"      id="nav-chtool"      class="auth-only">📋 CHTool</button>
     <button data-view="catalog"     id="nav-catalog">📚 Catalog</button>
-    <button data-view="instructors" id="nav-instructors">👤 Instructors</button>
+    <button data-view="instructors" id="nav-instructors" class="auth-only">👤 Instructors</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
     <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
   </nav>
@@ -191,19 +200,19 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <!-- SCHEDULE -->
     <div class="view active" id="view-schedule">
       <div class="toolbar">
-        <select id="f-term"><option value="">All Terms</option><option value="Summer26">Summer 2026</option><option value="Fall26">Fall 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select>
+        <select id="f-term"><option value="">All Terms</option></select>
         <select id="f-pfx"><option value="">All Programs</option></select>
         <select id="f-mod"><option value="">All Modalities</option><option>Online (async)</option><option>Online (sync)</option><option>Hybrid</option><option>In-Person</option><option>By Arrangement</option><option>Dept Arranged</option><option>Attend Anywhere</option></select>
         <select id="f-level"><option value="">All Levels</option><option value="GR">Graduate</option><option value="UG">Undergraduate</option></select>
         <input type="search" id="f-q" placeholder="Search…" style="width:200px">
-        <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dgray);cursor:pointer;white-space:nowrap"><input type="checkbox" id="f-incomplete" style="margin:0;cursor:pointer"> ⚠ Incomplete only</label>
+        <label class="auth-only" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--dgray);cursor:pointer;white-space:nowrap"><input type="checkbox" id="f-incomplete" style="margin:0;cursor:pointer"> ⚠ Incomplete only</label>
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-off" style="display:none">+ Add Offering</button>
         <button class="btn btn-s admin-only" id="btn-undo" style="display:none" disabled title="Nothing to undo">↶ Undo</button>
         <button class="btn btn-s admin-only" id="btn-report" style="display:none">📄 Change Report</button>
-        <button class="btn btn-s" id="btn-exp-sched">⬇ CSV</button>
+        <button class="btn btn-s auth-only" id="btn-exp-sched">⬇ CSV</button>
         <div class="tb-sp"></div>
-        <button class="btn btn-s admin-only" id="btn-reset" style="display:none;font-size:11px;color:var(--red);border-color:var(--red)">↺ Reset</button>
+        <button class="btn btn-s admin-only admin-strict" id="btn-reset" style="display:none;font-size:11px;color:var(--red);border-color:var(--red)">↺ Reset</button>
         <span id="sched-ct" style="font-size:12px;color:var(--dgray)"></span>
       </div>
       <div id="enr-banner" style="display:none"></div>
@@ -223,10 +232,10 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <!-- GANTT -->
     <div class="view" id="view-gantt">
       <div class="toolbar">
-        <select id="g-term"><option value="Fall26">Fall 2026</option><option value="Summer26">Summer 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select>
+        <select id="g-term"></select>
         <select id="g-pfx"><option value="">All Programs</option></select>
         <div class="tb-sp"></div>
-        <button class="btn btn-s" id="btn-oc-report">🖨 On-Campus Report</button>
+        <button class="btn btn-s auth-only" id="btn-oc-report">🖨 On-Campus Report</button>
         <span class="tb-hint">Bars = In-Person / Hybrid · Numbers = enrollment (cap if blank)</span>
       </div>
       <div class="gantt-scroll" id="gantt-wrap"></div>
@@ -254,12 +263,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       </div>
       <div class="table-wrap">
         <table id="cat-tbl">
-          <thead><tr>
-            <th>Prefix</th><th>Number</th><th>Title</th><th>Credits</th><th>P/NP</th>
-            <th>Perm</th><th>GR/UG</th><th>FTE Ex</th><th>Max Cap</th>
-            <th>Su26</th><th>Fa26</th><th>Wi27</th><th>Sp27</th>
-            <th class="admin-only" style="display:none">Edit</th>
-          </tr></thead>
+          <thead><tr id="cat-th"></tr></thead>
           <tbody id="cat-tb"></tbody>
         </table>
       </div>
@@ -412,11 +416,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>GR / UG / B</label><select id="cm-grugb"><option>GR</option><option>UG</option><option>B</option></select></div>
       <div><label>FTE Exempt</label><select id="cm-fte"><option value="No">No</option><option value="Yes">Yes</option></select></div>
       <div><label>Max Cap</label><input id="cm-cap" type="number"></div>
-      <div class="fsec">Offered in AY 2026–27</div>
-      <div class="crow"><input type="checkbox" id="cm-su"><label for="cm-su">Summer 2026</label></div>
-      <div class="crow"><input type="checkbox" id="cm-fa"><label for="cm-fa">Fall 2026</label></div>
-      <div class="crow"><input type="checkbox" id="cm-wi"><label for="cm-wi">Winter 2027</label></div>
-      <div class="crow"><input type="checkbox" id="cm-sp"><label for="cm-sp">Spring 2027</label></div>
+      <div id="cm-terms" class="s2"></div>
     </div></div>
     <div class="mft">
       <button class="btn btn-s" data-close="mo-crs">Cancel</button>
@@ -533,10 +533,22 @@ function initSupabase(){
 }
 
 /* ─── CONSTANTS ────────────────────────────────────────────── */
-const TERMS=['Summer26','Fall26','Winter27','Spring27'];
-const TL={Summer26:'Summer 2026',Fall26:'Fall 2026',Winter27:'Winter 2027',Spring27:'Spring 2027'};
-const TO={Summer26:0,Fall26:1,Winter27:2,Spring27:3};
-const TC={Summer26:'b-su',Fall26:'b-fa',Winter27:'b-wi',Spring27:'b-sp'};
+/* Terms are no longer hardcoded. They load from the `terms` table, filtered by
+   the academic year selected in the header. Everything downstream — Schedule
+   grouping, Gantt, CHTool columns, Catalog dots, the Course modal — reads these
+   four, so they must be rebuilt (rebuildTermUI) whenever the AY changes.
+
+   ACADEMIC-YEAR SCOPING is not cosmetic. CHTool computes an ANNUAL FTE by
+   summing every term in TERMS. If TERMS ever spanned two academic years, that
+   total would silently double. Scoping to one AY keeps it correct. */
+let TERM_ROWS=[];        // raw rows from `terms`, all AYs the user may see
+let AYS=[];              // distinct academic years, newest last
+let activeAY='';         // the AY currently displayed
+let TERMS=[];            // term codes in activeAY, chronological
+let TL={};               // code → label
+let TO={};               // code → sort index
+let TC={};               // code → badge class
+const TC_PALETTE=['b-su','b-fa','b-wi','b-sp'];
 const PROGS=['BSTA','CPH','EPI','ESHH','HSMP','IPE','PHE','UNST'];
 const FTE_CATS=new Set(['OHSU Primary','Staff','Other','NPS','OHSU Adjunct']);
 const GDAYS=['MON','TUE','WED','THU','FRI'];
@@ -560,6 +572,28 @@ const GCOLS=['#2E75B6','#375623','#C55A11','#7B2C8C','#C00000','#1F6B75','#7F4F2
 /* ─── STATE ────────────────────────────────────────────────── */
 let DB={courses:[],instructors:[],offerings:[]};
 let isAdmin=false;
+/* Four states now: signed-out < viewer < pd < admin.
+   isAdmin  → full rights, including term management and Reset.
+   isPD     → edits offerings in PD-editable terms, plus courses/instructors.
+   signedIn → visibility only.
+   The database is the authority on all of this; these flags only decide which
+   controls to draw. */
+let isPD=false;
+/* Three states, not two: signed-out < signed-in (read-only) < admin.
+   `signedIn` gates VISIBILITY (what an anonymous visitor may see);
+   `isAdmin` gates EDITING. They are independent — a signed-in non-admin sees
+   everything a scheduler sees but cannot change any of it. */
+let signedIn=false;
+function applyAuthVis(){
+  document.body.classList.toggle('signed-out',!signedIn);
+  // If an anon visitor is somehow parked on a gated tab (stale hash, back
+  // button after sign-out), bounce them to the Schedule rather than leaving
+  // them staring at a view whose nav button no longer exists.
+  if(!signedIn){
+    const cur=document.querySelector('.view.active');
+    if(cur&&(cur.id==='view-chtool'||cur.id==='view-instructors'))switchView('schedule');
+  }
+}
 let currentUserEmail=null;          // set on auth; stamped onto change_log rows
 let undoStack=[];                   // in-memory, session-only: changes THIS user made this session
 let sortCol='term', sortDir=1;
@@ -622,6 +656,8 @@ function fillSel(id,items,vfn,lfn,blank){
 async function loadData(){
   setLM('Connecting…');
   if(!sb)initSupabase();
+  setLM('Fetching terms…');
+  await loadTerms();          // must precede rendering: TERMS drives every view
   setLM('Fetching schedule data…');
 
   const [cR,oR,mR,dR,lR]=await Promise.all([
@@ -752,23 +788,33 @@ function setLM(msg){
 }
 
 /* ─── ADMIN ─────────────────────────────────────────────────── */
-function enableAdmin(){
-  isAdmin=true;
+/* `.admin-only` now means "editor" — visible to PDs and admins alike. Controls
+   that must stay admin-exclusive (Reset, and later term management) carry
+   `.admin-strict` instead. Keeping the old class name avoids touching every
+   button in the markup. */
+function enableAdmin(pdOnly){
+  isAdmin=!pdOnly;
   $('admin-badge').classList.add('on');
+  $('admin-badge').textContent=pdOnly?'PD':'ADMIN';
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='');
   document.querySelectorAll('thead th.admin-only').forEach(e=>e.style.display='');
+  document.querySelectorAll('.admin-strict').forEach(e=>e.style.display=pdOnly?'none':'');
   updateUndoBtn();
-  setSS('Admin mode');
+  setSS(pdOnly?'PD mode':'Admin mode');
 }
 function disableAdmin(){
   isAdmin=false;
   $('admin-badge').classList.remove('on');
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='none');
+  document.querySelectorAll('.admin-strict').forEach(e=>e.style.display='none');
   setSS('Read-only');
 }
 
 /* ─── NAVIGATION ────────────────────────────────────────────── */
 function switchView(name){
+  // Hard guard, not just a hidden nav button: CHTool and Instructors are
+  // unreachable while signed out, however the call arrives.
+  if(!signedIn&&(name==='chtool'||name==='instructors'))name='schedule';
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.classList.remove('active'));
   $('view-'+name).classList.add('active');
@@ -829,9 +875,90 @@ function handleOfferingDeepLink(){
   setSS('● Showing '+(off.fullName||'offering'));
 }
 
+/* ─── TERMS: LOAD + REBUILD DEPENDENT UI ───────────────────── */
+/* RLS decides which terms come back: anon gets is_public, a PD gets
+   is_pd_visible, admins get everything. So an unpublished term is absent from
+   the payload, not merely hidden — the app never has to filter it out itself. */
+async function loadTerms(){
+  const {data,error}=await sb.from('terms')
+    .select('code,academic_year,label,sort_order,is_public,is_pd_visible,is_pd_editable')
+    .order('academic_year').order('sort_order');
+  if(error)throw error;
+  TERM_ROWS=data||[];
+  AYS=[...new Set(TERM_ROWS.map(t=>t.academic_year))].sort();
+  if(!AYS.includes(activeAY))activeAY=AYS[AYS.length-1]||'';   // default: newest AY
+  applyAY();
+}
+function applyAY(){
+  const rows=TERM_ROWS.filter(t=>t.academic_year===activeAY)
+                      .sort((a,b)=>a.sort_order-b.sort_order);
+  TERMS=rows.map(t=>t.code);
+  TL={};TO={};TC={};
+  rows.forEach((t,i)=>{TL[t.code]=t.label;TO[t.code]=i;TC[t.code]=TC_PALETTE[i%TC_PALETTE.length];});
+}
+function termRow(code){return TERM_ROWS.find(t=>t.code===code)||null;}
+/* Mirrors can_edit_term() in the database. The DB is the authority — this only
+   decides whether to SHOW an edit control, so a stale answer here is a cosmetic
+   bug, never a security hole. */
+const canEdit=()=>isAdmin||isPD;
+function canEditTerm(code){
+  if(isAdmin)return true;
+  if(!isPD)return false;
+  const t=termRow(code);
+  return !!(t&&t.is_pd_editable);
+}
+
+function rebuildTermUI(){
+  // Academic-year picker (only meaningful once a second AY exists)
+  const ay=$('ay-sel');
+  if(ay){
+    ay.innerHTML=AYS.map(a=>`<option value="${esc(a)}"${a===activeAY?' selected':''}>${esc(a)}</option>`).join('');
+    ay.style.display=AYS.length>1?'':'none';
+  }
+  const sub=$('hdr-sub');
+  if(sub)sub.textContent='Academic Year '+(activeAY||'—');
+
+  // Schedule term filter
+  const ft=$('f-term'),keepF=ft?ft.value:'';
+  if(ft){
+    ft.innerHTML='<option value="">All Terms</option>'+
+      TERMS.map(t=>`<option value="${esc(t)}">${esc(TL[t])}</option>`).join('');
+    ft.value=TERMS.includes(keepF)?keepF:'';
+  }
+  // Gantt term picker — single-select, so it always needs a valid value
+  const gt=$('g-term'),keepG=gt?gt.value:'';
+  if(gt){
+    gt.innerHTML=TERMS.map(t=>`<option value="${esc(t)}">${esc(TL[t])}</option>`).join('');
+    gt.value=TERMS.includes(keepG)?keepG:(TERMS[1]||TERMS[0]||'');
+  }
+  // Catalog term columns
+  const ch=$('cat-th');
+  if(ch){
+    ch.innerHTML=`<th>Prefix</th><th>Number</th><th>Title</th><th>Credits</th><th>P/NP</th>`+
+      `<th class="col-internal">Perm</th><th>GR/UG</th><th class="col-internal">FTE Ex</th><th>Max Cap</th>`+
+      TERMS.map(t=>`<th title="${esc(TL[t])}">${esc(shortTerm(t))}</th>`).join('')+
+      `<th class="admin-only"${canEdit()?'':' style="display:none"'}>Edit</th>`;
+  }
+  // Course modal: one checkbox per term, ids derived from the code
+  const cmt=$('cm-terms');
+  if(cmt){
+    cmt.innerHTML=`<div class="fsec">Offered in ${esc(activeAY||'')}</div>`+
+      TERMS.map(t=>`<div class="crow"><input type="checkbox" id="cm-t-${esc(t)}"><label for="cm-t-${esc(t)}">${esc(TL[t])}</label></div>`).join('');
+  }
+}
+/* 'Summer 2026' → 'Su26'. Column headers have no room for the full label. */
+function shortTerm(code){
+  const m=String(code).match(/^([A-Za-z]+)(\d+)$/);
+  return m?m[1].slice(0,2)+m[2]:code;
+}
+const catCols=()=>9+TERMS.length+(canEdit()?1:0);
+
 function renderSched(){
   const term=val('f-term'),pfx=val('f-pfx'),mod=val('f-mod'),lvl=val('f-level'),q=val('f-q').toLowerCase();
   let rows=DB.offerings.filter(o=>{
+    // Offerings from other academic years are loaded but not shown — the AY
+    // picker, not the term filter, is what switches years.
+    if(!TERMS.includes(o.term))return false;
     if(term&&o.term!==term)return false;
     if(pfx&&o.prefix!==pfx)return false;
     if(mod&&o.modality!==mod)return false;
@@ -860,8 +987,10 @@ function renderSched(){
     if(o.term!==lt){h+=`<tr class="gt"><td colspan="11">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
     if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="11">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
     const i2=o.instructor2?` &amp; ${facLink(o.instructor2)}`:'';
-    const eb=isAdmin?`<td><button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button></td>`:'';
-    const ro=isAdmin?'':'readonly';
+    // Per-term, not per-user: a PD may edit Spring while Fall is frozen.
+    const canT=canEditTerm(o.term);
+    const eb=canEdit()?`<td>${canT?`<button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button>`:'<span class="muted" title="This term is frozen" style="color:#94A3B8;font-size:11px">🔒</span>'}</td>`:'';
+    const ro=canT?'':'readonly';
     const hasNotes=!!(o.adminNotes&&String(o.adminNotes).trim());
     const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
@@ -1202,10 +1331,10 @@ function renderCat(){
     if(q&&!(c.fullName+' '+c.title).toLowerCase().includes(q))return false;
     return true;
   }).sort((a,b)=>(a.prefix.localeCompare(b.prefix))||a.number.localeCompare(b.number));
-  if(!courses.length){$('cat-tb').innerHTML=`<tr><td colspan="14" class="nores">No courses match.</td></tr>`;return;}
+  if(!courses.length){$('cat-tb').innerHTML=`<tr><td colspan="${catCols()}" class="nores">No courses match.</td></tr>`;return;}
   let h='';
   courses.forEach(c=>{
-    const eb=isAdmin?`<td><button class="btn btn-s btn-sm ec" data-id="${esc(c.id)}">Edit</button></td>`:'';
+    const eb=canEdit()?`<td><button class="btn btn-s btn-sm ec" data-id="${esc(c.id)}">Edit</button></td>`:'';
     const noOff=!DB.offerings.some(o=>o.courseId===c.id);
     h+=`<tr${noOff?' class="no-off" title="No offerings scheduled in any term"':''}>
       <td><strong>${esc(c.prefix)}</strong></td>
@@ -1213,9 +1342,9 @@ function renderCat(){
       <td style="max-width:240px">${esc(c.title)}</td>
       <td style="text-align:center">${esc(c.credits)}</td>
       <td style="text-align:center">${esc(c.pnp)}</td>
-      <td style="text-align:center">${c.permission==='Yes'?'✓':''}</td>
+      <td class="col-internal" style="text-align:center">${c.permission==='Yes'?'✓':''}</td>
       <td style="text-align:center">${esc(c.grugb)}</td>
-      <td style="text-align:center">${c.fteExempt==='Yes'?'✓':''}</td>
+      <td class="col-internal" style="text-align:center">${c.fteExempt==='Yes'?'✓':''}</td>
       <td style="text-align:center">${esc(c.maxCap)}</td>
       ${TERMS.map(t=>dotCell(c.id,c.prefix,t)).join('')}
       ${eb}
@@ -1225,7 +1354,7 @@ function renderCat(){
 }
 function dotCell(cid,pfx,term){
   const on=DB.offerings.some(o=>o.courseId===cid&&o.term===term);
-  if(isAdmin)return`<td style="text-align:center"><span class="dot ${on?'on':'off'}" data-cid="${esc(cid)}" data-pfx="${esc(pfx)}" data-term="${esc(term)}">${on?'●':'○'}</span></td>`;
+  if(canEditTerm(term))return`<td style="text-align:center"><span class="dot ${on?'on':'off'}" data-cid="${esc(cid)}" data-pfx="${esc(pfx)}" data-term="${esc(term)}">${on?'●':'○'}</span></td>`;
   return`<td style="text-align:center;color:${on?'var(--teal)':'var(--mgray)'}">${on?'●':'○'}</td>`;
 }
 function toggleOff(cid,pfx,term){
@@ -1275,7 +1404,7 @@ function renderInst(){
   const assigned=new Set();
   DB.offerings.forEach(o=>{if(o.instructor1)assigned.add(o.instructor1);if(o.instructor2)assigned.add(o.instructor2);});
   instrs.forEach(i=>{
-    const eb=isAdmin?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
+    const eb=canEdit()?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
     const notUsed=!i.isPlaceholder&&!isTBD(i.displayName)&&!assigned.has(i.displayName);
     const flag=notUsed?' <span class="flag-warn" title="Not assigned to any offering on the Schedule">⚠</span>':'';
     h+=`<tr><td><strong>${esc(i.displayName)}</strong>${flag}</td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
@@ -1549,11 +1678,11 @@ function openCM(id){
     ensureOpt('cm-pfx',c.prefix);setv('cm-pfx',c.prefix);setv('cm-num',c.number);setv('cm-num2',c.number2);setv('cm-cr',c.credits);
     setv('cm-ttl',c.title);setv('cm-pnp',c.pnp);setv('cm-perm',c.permission);setv('cm-grugb',c.grugb);
     setv('cm-fte',c.fteExempt);setv('cm-cap',c.maxCap);
-    const tk=['su','fa','wi','sp'];
-    TERMS.forEach((t,i)=>setc('cm-'+tk[i],DB.offerings.some(o=>o.courseId===id&&o.term===t)));
+    
+    TERMS.forEach(t=>setc('cm-t-'+t,DB.offerings.some(o=>o.courseId===id&&o.term===t)));
   }else{
     ['cm-num','cm-num2','cm-cr','cm-ttl','cm-cap'].forEach(f=>setv(f,''));
-    ['cm-su','cm-fa','cm-wi','cm-sp'].forEach(f=>setc(f,false));
+    TERMS.forEach(t=>setc('cm-t-'+t,false));
   }
   openM('mo-crs');
 }
@@ -1599,9 +1728,9 @@ async function saveCrs(){
 
   // Term checkboxes → add / remove offerings (offRow resolves course_id from
   // DB, which now contains this course with its _uuid).
-  const tk={Summer26:'cm-su',Fall26:'cm-fa',Winter27:'cm-wi',Spring27:'cm-sp'};
+  
   for(const t of TERMS){
-    const on=chk(tk[t]);
+    const on=chk('cm-t-'+t);
     const ex=DB.offerings.find(o=>o.courseId===id&&o.term===t);
     if(on&&!ex){
       const off={id:genid(),term:t,prefix:pfx,courseNumber:num,courseId:id,fullName:`${pfx} - ${nd}: ${title}`,
@@ -2022,7 +2151,7 @@ function maybeShowEnrBanner(){
 function wireEvents(){
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
   $('btn-admin-toggle').addEventListener('click',()=>{
-    if(isAdmin)showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
+    if(canEdit())showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
     else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the header to enable admin');}}
   });
   $('btn-lists').addEventListener('click',openLists);
@@ -2056,8 +2185,14 @@ function wireEvents(){
   $('btn-del-off').addEventListener('click',delOff);
   // Gantt
   $('g-term').addEventListener('change',renderGantt);
+  $('ay-sel').addEventListener('change',e=>{
+    activeAY=e.target.value;
+    applyAY();          // recompute TERMS/TL/TO/TC for the chosen year
+    rebuildTermUI();
+    renderAll();
+  });
   $('g-pfx').addEventListener('change',renderGantt);
-  $('gantt-wrap').addEventListener('click',e=>{const b=e.target.closest('.gbar');if(b&&isAdmin)openOM(b.dataset.id);});
+  $('gantt-wrap').addEventListener('click',e=>{const b=e.target.closest('.gbar');if(b&&canEdit())openOM(b.dataset.id);});
   $('btn-oc-report').addEventListener('click',generateOnCampusReport);
   // CHTool
   $('c-cat').addEventListener('change',renderCht);
@@ -2107,19 +2242,24 @@ function wireEvents(){
    self-read policy (is the signed-in user a 'scheduling' admin?). The
    incognito/persist toggle controls whether the session survives reload. */
 async function refreshAdmin(){
-  if(!sb){disableAdmin();return;}
+  if(!sb){signedIn=false;isPD=false;applyAuthVis();disableAdmin();return;}
   const {data:{session}}=await sb.auth.getSession();
-  if(!session){disableAdmin();updateAuthBar(null);currentUserEmail=null;return;}
+  if(!session){signedIn=false;isPD=false;applyAuthVis();disableAdmin();updateAuthBar(null);currentUserEmail=null;return;}
+  signedIn=true;applyAuthVis();
   currentUserEmail=session.user?.email||null;
-  // Am I a scheduling admin? Self-read on app_access (RLS: own rows only).
-  let admin=false;
+  // What level am I? Self-read on app_access (RLS: own rows only).
+  let admin=false,pd=false;
   try{
     const {data,error}=await sb.from('app_access')
       .select('level').eq('app','scheduling').maybeSingle();
-    if(!error && data && data.level==='admin')admin=true;
+    if(!error && data){
+      if(data.level==='admin')admin=true;
+      else if(data.level==='pd')pd=true;
+    }
   }catch(e){}
-  if(admin)enableAdmin(); else disableAdmin();
-  updateAuthBar(session.user, admin);
+  isPD=pd;
+  if(admin||pd)enableAdmin(pd&&!admin); else disableAdmin();
+  updateAuthBar(session.user, admin||pd);
 }
 async function signInEmail(email){
   if(!email){setSS('⚠ Enter an email');return;}
@@ -2190,7 +2330,9 @@ document.addEventListener('DOMContentLoaded',async()=>{
     setLM('');setSS('⚠ Could not load data — check Supabase URL/key and that RLS read policies are in place.');
   }
   initDropdowns();
-  await refreshAdmin();        // sets admin/viewer based on session
+  await refreshAdmin();        // sets admin/pd/viewer based on session
+  await loadTerms();           // re-read: RLS returns more terms once signed in
+  rebuildTermUI();
   renderAll();
   maybeShowEnrBanner();
   setLM('');
