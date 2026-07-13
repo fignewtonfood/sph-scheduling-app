@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPH Faculty Directory</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ═══ TOKENS (shared with the scheduling app) ════════════════ */
+:root {
+  --navy:#1F3864; --teal:#2E75B6; --ltblue:#D6E4F0;
+  --lgray:#F4F6F9; --mgray:#CBD5E1; --dgray:#475569; --text:#1E293B;
+  --red:#DC2626; --ltred:#FEE2E2; --ltgrn:#DCFCE7; --ltgold:#FEF3C7;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--lgray);color:var(--text);font-size:14px}
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ═══ HEADER ════════════════════════════════════════════════ */
+header{background:var(--navy);color:white;padding:0 20px;height:52px;display:flex;align-items:center;gap:16px;flex-shrink:0}
+header h1{font-size:16px;font-weight:600}
+header .sub{font-size:11px;color:#94A3B8;margin-top:1px}
+.hsp{flex:1}
+#tier-badge{display:none;background:#3B82F6;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.5px}
+#tier-badge.on{display:inline-block}
+#save-status{font-size:12px;color:#94A3B8;min-width:90px;text-align:right}
+header a.xlink{color:#CBD5E1;font-size:12px;text-decoration:none;border:1px solid rgba(255,255,255,.25);padding:4px 10px;border-radius:4px}
+header a.xlink:hover{background:rgba(255,255,255,.1);color:white}
+#auth-slot{display:inline-flex;align-items:center;gap:8px}
+#auth-slot input{font-size:12px;padding:4px 8px;border:1px solid rgba(255,255,255,.3);border-radius:4px;background:rgba(255,255,255,.1);color:white;width:180px}
+#auth-slot input::placeholder{color:#94A3B8}
+#auth-slot .who{font-size:12px;color:#CBD5E1}
+
+/* ═══ TOOLBAR ═══════════════════════════════════════════════ */
+.tb{background:white;border-bottom:1px solid var(--mgray);padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0}
+.tb input,.tb select{font-size:13px;padding:6px 10px;border:1px solid var(--mgray);border-radius:5px;font-family:inherit;background:white;color:var(--text)}
+.tb input[type=search]{width:240px}
+.cnt{font-size:12px;color:var(--dgray);margin-left:auto}
+
+/* ═══ BUTTONS ═══════════════════════════════════════════════ */
+.btn{font-family:inherit;font-size:13px;padding:6px 14px;border-radius:5px;border:1px solid var(--mgray);background:white;color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--lgray)}
+.btn-p{background:var(--teal);border-color:var(--teal);color:white}
+.btn-p:hover{background:#245f95}
+.btn-d{background:var(--red);border-color:var(--red);color:white}
+.btn-d:hover{background:#b91c1c}
+.btn-s{font-size:12px;padding:4px 10px}
+.admin-only{display:none!important}
+body.is-admin .admin-only{display:inline-flex!important}
+
+/* ═══ MAIN / VIEWS ══════════════════════════════════════════ */
+main{flex:1;overflow:auto;display:flex;flex-direction:column}
+.view{display:none;flex:1;flex-direction:column}
+.view.active{display:flex}
+
+/* ═══ TABLE ═════════════════════════════════════════════════ */
+.tw{flex:1;overflow:auto}
+table{width:100%;border-collapse:collapse;background:white}
+thead th{position:sticky;top:0;background:var(--ltblue);color:var(--navy);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:9px 12px;text-align:left;border-bottom:2px solid var(--mgray);white-space:nowrap;z-index:2}
+tbody td{padding:9px 12px;border-bottom:1px solid #E8EDF3;font-size:13px;vertical-align:top}
+tbody tr:hover td{background:#F8FAFD}
+tbody tr.clickable{cursor:pointer}
+.nm{color:var(--navy);font-weight:600}
+.muted{color:#94A3B8}
+.chip{display:inline-block;background:var(--ltblue);color:var(--navy);font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;margin:1px 3px 1px 0;white-space:nowrap}
+.chip.warn{background:var(--ltgold);color:#92400E}
+
+/* ═══ PROFILE ═══════════════════════════════════════════════ */
+.pw{max-width:1000px;width:100%;margin:0 auto;padding:20px 24px 60px}
+.pback{background:none;border:none;color:var(--teal);font-size:13px;cursor:pointer;padding:0;margin-bottom:14px;font-family:inherit}
+.pback:hover{text-decoration:underline}
+.phead{background:white;border:1px solid var(--mgray);border-radius:8px;padding:20px 24px;display:flex;align-items:flex-start;gap:18px;margin-bottom:18px}
+.pavatar{width:56px;height:56px;border-radius:50%;background:var(--navy);color:white;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex-shrink:0}
+.phead h2{font-size:22px;color:var(--navy);font-weight:600;line-height:1.2}
+.phead .prole{font-size:13px;color:var(--dgray);margin-top:3px}
+.phead .pcats{margin-top:8px}
+.phead .pact{margin-left:auto;display:flex;gap:8px}
+
+.card{background:white;border:1px solid var(--mgray);border-radius:8px;margin-bottom:18px;overflow:hidden}
+.card h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);background:var(--ltblue);padding:9px 16px;border-bottom:1px solid var(--mgray)}
+.card h3 .lock{float:right;font-weight:400;text-transform:none;letter-spacing:0;color:#5A7BA6;font-size:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:2px;background:#EDF1F6}
+.fld{background:white;padding:10px 16px}
+.fld .k{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#8296AE;font-weight:600}
+.fld .v{font-size:13px;margin-top:3px;word-break:break-word}
+.fld .v.empty{color:#C0CBD8}
+.longtext{padding:12px 16px;font-size:13px;line-height:1.55;white-space:pre-wrap}
+
+.gate{padding:14px 16px;font-size:13px;color:var(--dgray);background:#FBFCFE}
+.gate b{color:var(--navy)}
+
+/* teaching list */
+.tgrp{border-bottom:1px solid #E8EDF3}
+.tgrp:last-child{border-bottom:none}
+.tgrp .th{font-size:11px;font-weight:700;color:var(--navy);padding:8px 16px;background:#FBFCFE;text-transform:uppercase;letter-spacing:.4px}
+.trow{display:flex;gap:12px;align-items:baseline;padding:8px 16px;border-top:1px solid #F1F4F8;font-size:13px}
+.trow a{color:var(--teal);text-decoration:none;font-weight:600}
+.trow a:hover{text-decoration:underline}
+.trow .meta{color:var(--dgray);font-size:12px;margin-left:auto;text-align:right;white-space:nowrap}
+
+/* ═══ MODAL ═════════════════════════════════════════════════ */
+.mo{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.mo.open{display:flex}
+.mc{background:white;border-radius:8px;width:100%;max-width:760px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.mc.sm{max-width:420px}
+.mh{padding:14px 20px;border-bottom:1px solid var(--mgray);display:flex;align-items:center}
+.mh h3{font-size:15px;color:var(--navy);font-weight:600}
+.mh .x{margin-left:auto;background:none;border:none;font-size:20px;color:var(--dgray);cursor:pointer;line-height:1}
+.mb{padding:18px 20px;max-height:65vh;overflow:auto}
+.mf{padding:12px 20px;border-top:1px solid var(--mgray);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.mf .lft{margin-right:auto}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.fg .full{grid-column:1/-1}
+.f label{display:block;font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:3px}
+.f input,.f select,.f textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--mgray);border-radius:5px;font-family:inherit;background:white;color:var(--text)}
+.f textarea{min-height:64px;resize:vertical}
+.sect{grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:1px solid var(--mgray);padding-bottom:5px;margin-top:6px}
+.catbox{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px}
+.catbox label{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;color:var(--text);margin:0}
+.catbox input{width:auto}
+#cfm-msg{font-size:13px;line-height:1.5}
+#cfm-det{font-size:12px;color:var(--dgray);margin-top:8px;line-height:1.5}
+
+/* ═══ LOAD ══════════════════════════════════════════════════ */
+#ls{position:fixed;inset:0;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9000}
+#ls h2{font-size:18px;color:var(--navy)}
+#ls p{font-size:13px;color:var(--dgray)}
+.spin{width:36px;height:36px;border:3px solid var(--ltblue);border-top-color:var(--teal);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="ls"><div class="spin"></div><h2>SPH Faculty</h2><p id="lm">Loading…</p></div>
+
+<div id="app" style="display:none">
+  <header>
+    <div><h1>SPH Faculty Directory</h1><div class="sub">OHSU-PSU School of Public Health</div></div>
+    <div class="hsp"></div>
+    <a class="xlink" href="index.html">📅 Scheduling</a>
+    <span id="auth-slot"></span>
+    <span id="tier-badge">ADMIN</span>
+    <span id="save-status">Ready</span>
+  </header>
+
+  <main>
+    <!-- ── DIRECTORY ─────────────────────────────────────────── -->
+    <section class="view active" id="v-dir">
+      <div class="tb">
+        <input type="search" id="f-q" placeholder="Search name, unit, employer…">
+        <select id="f-cat"><option value="">All categories</option></select>
+        <select id="f-unit"><option value="">All units</option></select>
+        <label style="font-size:12px;color:var(--dgray);display:flex;align-items:center;gap:5px">
+          <input type="checkbox" id="f-teach"> Teaching this year
+        </label>
+        <button class="btn btn-p btn-s admin-only" id="btn-add">+ Add Faculty</button>
+        <button class="btn btn-s admin-only" id="btn-log">📄 Change Log</button>
+        <span class="cnt" id="dir-cnt"></span>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr id="dir-th"></tr></thead>
+          <tbody id="dir-tb"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── PROFILE ───────────────────────────────────────────── -->
+    <section class="view" id="v-prof">
+      <div class="pw" id="prof-body"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ── EDIT MODAL ─────────────────────────────────────────────── -->
+<div class="mo" id="mo-fac">
+  <div class="mc">
+    <div class="mh"><h3 id="fm-title">Edit Faculty</h3><button class="x" data-close="mo-fac">×</button></div>
+    <div class="mb f">
+      <div class="fg">
+        <div class="sect">Identity</div>
+        <div><label>Last Name *</label><input id="fm-last"></div>
+        <div><label>First Name</label><input id="fm-first"></div>
+        <div><label>Email</label><input id="fm-email" type="email"></div>
+        <div><label>SPH Unit</label><input id="fm-unit" placeholder="EPI, PHE (CH/HP), HSMP…"></div>
+
+        <div class="sect">Categories</div>
+        <div class="catbox" id="fm-cats"></div>
+
+        <div class="sect">Appointment</div>
+        <div><label>Rank</label><input id="fm-rank"></div>
+        <div><label>Appointment Type</label><input id="fm-appt"></div>
+        <div><label>SPH Association</label><input id="fm-assoc"></div>
+        <div><label>Employer</label><input id="fm-employer"></div>
+        <div><label>OHSU Employment Org</label><input id="fm-org"></div>
+        <div><label>Role When Active</label><input id="fm-role"></div>
+        <div><label>FTE in SPH</label><input id="fm-fte" type="number" step="0.01"></div>
+        <div><label>Start Date</label><input id="fm-start" type="date"></div>
+        <div><label>Appt Expiration Date</label><input id="fm-exp" type="date"></div>
+
+        <div class="sect">Identifiers</div>
+        <div><label>Primary ID</label><input id="fm-pid"></div>
+        <div><label>OHSU ID</label><input id="fm-ohsu"></div>
+        <div><label>PSU ID</label><input id="fm-psu"></div>
+
+        <div class="sect">Review &amp; Promotion</div>
+        <div><label>Next Review Type</label><input id="fm-nrt"></div>
+        <div><label>Next Review Year</label><input id="fm-nry"></div>
+        <div><label>Last Review Type</label><input id="fm-lrt"></div>
+        <div><label>Last Review Year</label><input id="fm-lry"></div>
+        <div><label>Previous Promotion Date</label><input id="fm-ppd"></div>
+        <div><label>Promotion Eligible Year</label><input id="fm-pey"></div>
+        <div><label>Promotion Target</label><input id="fm-pt"></div>
+
+        <div class="sect">Notes</div>
+        <div class="full"><label>Special Notes</label><textarea id="fm-snotes"></textarea></div>
+        <div class="full"><label>Notes</label><textarea id="fm-notes"></textarea></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-d lft" id="btn-del-fac">Delete</button>
+      <button class="btn" data-close="mo-fac">Cancel</button>
+      <button class="btn btn-p" id="btn-save-fac">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CONFIRM MODAL ──────────────────────────────────────────── -->
+<div class="mo" id="mo-cfm">
+  <div class="mc sm">
+    <div class="mh"><h3 id="cfm-title">Confirm</h3><button class="x" data-close="mo-cfm">×</button></div>
+    <div class="mb"><div id="cfm-msg"></div><div id="cfm-det"></div></div>
+    <div class="mf">
+      <button class="btn" data-close="mo-cfm" id="cfm-no">Cancel</button>
+      <button class="btn btn-p" id="cfm-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CHANGE LOG MODAL ───────────────────────────────────────── -->
+<div class="mo" id="mo-log">
+  <div class="mc">
+    <div class="mh"><h3>Faculty Change Log</h3><button class="x" data-close="mo-log">×</button></div>
+    <div class="mb" id="log-body"></div>
+    <div class="mf"><button class="btn" data-close="mo-log">Close</button></div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   SPH Faculty Directory — v1
+   Same Supabase project as the scheduling app; same magic-link auth.
+
+   READ TIERS (see faculty_app_v1.sql):
+     public  → faculty_public   (anon)         name, unit, rank, categories
+     viewer  → faculty_profile  (authenticated) + email, appointment, FTE
+     admin   → faculty          (app_access app='faculty')  + IDs, review, notes
+
+   The tier is decided ONCE at load and drives both which source we query and
+   which sections render. We never fetch a column the tier isn't allowed to see,
+   so a hidden section is genuinely absent from the payload — not just hidden
+   with CSS.
+   ════════════════════════════════════════════════════════════════════ */
+const SUPABASE_URL      = 'https://igusxvvnzdpoqwizcvke.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
+
+const PERSIST_FLAG='sph_persist';
+function wantPersist(){try{return localStorage.getItem(PERSIST_FLAG)!=='0';}catch(e){return true;}}
+let sb=null;
+function initSupabase(){
+  const persist=wantPersist();
+  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
+    auth:{persistSession:persist,autoRefreshToken:persist,
+          storage:persist?window.localStorage:undefined,storageKey:'sph_auth'}
+  });
+  return sb;
+}
+
+/* ─── CONSTANTS ────────────────────────────────────────────── */
+const TERMS=['Summer26','Fall26','Winter27','Spring27'];
+const TL={Summer26:'Summer 2026',Fall26:'Fall 2026',Winter27:'Winter 2027',Spring27:'Spring 2027'};
+const TO={Summer26:0,Fall26:1,Winter27:2,Spring27:3};
+// The nine category sheets from the master workbook. Data-driven at render time,
+// but this seeds the edit modal so a new category can't be created by typo.
+const CATEGORIES=['Primary','NonPaidSecondary','NonPaidAffiliate','Courtesy',
+  'PSUAdjunct','OHSUPaidAdjunct','NonFacultyInstructor','Emeriti','Inactive'];
+
+/* ─── STATE ────────────────────────────────────────────────── */
+let TIER='public';                  // 'public' | 'viewer' | 'admin'
+let FAC=[];                         // faculty rows, shape depends on TIER
+let COURSES={};                     // course uuid → {full_name, prefix}
+let OFFERINGS=[];                   // raw offering rows (anon-readable)
+let TEACHING={};                    // faculty id → [offering, …]
+let currentUserEmail=null;
+let eid=null;                       // faculty id being edited
+let cfmCb=null;
+
+/* ─── UTILS ────────────────────────────────────────────────── */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const val=id=>($(id)?$(id).value:'');
+const setv=(id,v)=>{const e=$(id);if(e)e.value=v??'';};
+const setSS=m=>{const e=$('save-status');if(e)e.textContent=m;};
+const setLM=m=>{const e=$('lm');if(e)e.textContent=m;};
+const isAdmin=()=>TIER==='admin';
+const full=f=>[f.first_name,f.last_name].filter(Boolean).join(' ')||'(no name)';
+const initials=f=>((f.first_name||'')[0]||'')+((f.last_name||'')[0]||'');
+// Blank string → null. The DB distinguishes "unknown" from "empty string";
+// PostgREST will happily write '' into a date column and then choke.
+const N=v=>{const s=String(v??'').trim();return s===''?null:s;};
+const NUM=v=>{const s=String(v??'').trim();return s===''?null:(isNaN(+s)?null:+s);};
+
+/* Every write goes through here. Supabase resolves data:null on a successful
+   update/delete, so success is keyed on the ABSENCE of `error`, never on data. */
+async function sbSave(q,okMsg){
+  const {error}=await q;
+  if(error){setSS('⚠ '+error.message);return false;}
+  if(okMsg)setSS(okMsg);
+  return true;
+}
+
+/* ─── DATA LOADING ─────────────────────────────────────────── */
+async function resolveTier(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){TIER='public';currentUserEmail=null;return;}
+  currentUserEmail=session.user?.email||null;
+  TIER='viewer';
+  try{
+    const {data,error}=await sb.from('app_access')
+      .select('level').eq('app','faculty').maybeSingle();
+    if(!error&&data&&data.level==='admin')TIER='admin';
+  }catch(e){}
+}
+
+async function loadData(){
+  setLM('Connecting…');
+  if(!sb)initSupabase();
+  await resolveTier();
+
+  setLM('Loading faculty…');
+  const src = TIER==='admin' ? 'faculty' : (TIER==='viewer' ? 'faculty_profile' : 'faculty_public');
+  const fq = TIER==='admin'
+    ? sb.from('faculty').select('*').eq('is_placeholder',false)
+    : sb.from(src).select('*');
+
+  const [fR,cR,oR,catR]=await Promise.all([
+    fq,
+    sb.from('courses').select('id,full_name,prefix'),
+    sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality'),
+    // The admin source is the base table, which has no `categories` array —
+    // membership lives in faculty_category. Fetch it separately for that tier.
+    TIER==='admin' ? sb.from('faculty_category').select('faculty_id,category')
+                   : Promise.resolve({data:[],error:null})
+  ]);
+  for(const r of [fR,cR,oR,catR]){
+    if(r.error){setLM('');throw r.error;}
+  }
+
+  FAC=(fR.data||[]);
+  if(TIER==='admin'){
+    const byId={};
+    (catR.data||[]).forEach(c=>{(byId[c.faculty_id]=byId[c.faculty_id]||[]).push(c.category);});
+    FAC.forEach(f=>{f.categories=(byId[f.id]||[]).sort();});
+  }
+  FAC.forEach(f=>{if(!Array.isArray(f.categories))f.categories=f.categories?[].concat(f.categories):[];});
+  FAC.sort((a,b)=>String(a.last_name||'').localeCompare(String(b.last_name||''))
+                ||String(a.first_name||'').localeCompare(String(b.first_name||'')));
+
+  COURSES={};(cR.data||[]).forEach(c=>{COURSES[c.id]=c;});
+  OFFERINGS=(oR.data||[]);
+
+  // faculty id → offerings they teach (either slot)
+  TEACHING={};
+  OFFERINGS.forEach(o=>{
+    [o.instructor1_id,o.instructor2_id].forEach(fid=>{
+      if(!fid)return;
+      (TEACHING[fid]=TEACHING[fid]||[]).push(o);
+    });
+  });
+  Object.values(TEACHING).forEach(list=>list.sort((a,b)=>(TO[a.term]??9)-(TO[b.term]??9)));
+}
+
+/* ─── FILTERS ──────────────────────────────────────────────── */
+function fillFilters(){
+  const cats=new Set(),units=new Set();
+  FAC.forEach(f=>{(f.categories||[]).forEach(c=>cats.add(c));if(f.sph_unit)units.add(f.sph_unit);});
+  const fill=(id,items,blank)=>{
+    const s=$(id),keep=s.value;
+    s.innerHTML=`<option value="">${blank}</option>`;
+    [...items].sort().forEach(x=>{
+      const o=document.createElement('option');o.value=x;o.textContent=x;s.appendChild(o);
+    });
+    s.value=keep;
+  };
+  fill('f-cat',cats,'All categories');
+  fill('f-unit',units,'All units');
+}
+
+function filtered(){
+  const q=val('f-q').toLowerCase().trim(),
+        cat=val('f-cat'), unit=val('f-unit'),
+        teachOnly=$('f-teach').checked;
+  return FAC.filter(f=>{
+    if(cat&&!(f.categories||[]).includes(cat))return false;
+    if(unit&&f.sph_unit!==unit)return false;
+    if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
+    if(q){
+      const hay=[f.first_name,f.last_name,f.sph_unit,f.rank,f.employer,f.email]
+        .filter(Boolean).join(' ').toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  });
+}
+
+/* ─── DIRECTORY RENDER ─────────────────────────────────────── */
+function renderDir(){
+  // Column set widens with the tier — Employer only exists on the viewer payload.
+  const cols=['Name','SPH Unit','Rank','Categories'];
+  if(TIER!=='public')cols.push('Employer');
+  cols.push('Teaching');
+  $('dir-th').innerHTML=cols.map(c=>`<th>${c}</th>`).join('');
+
+  const rows=filtered();
+  $('dir-cnt').textContent=`${rows.length} of ${FAC.length}`;
+  if(!rows.length){
+    $('dir-tb').innerHTML=`<tr><td colspan="${cols.length}" class="muted" style="padding:24px;text-align:center">No faculty match these filters.</td></tr>`;
+    return;
+  }
+  $('dir-tb').innerHTML=rows.map(f=>{
+    const n=(TEACHING[f.id]||[]).length;
+    return `<tr class="clickable" data-id="${esc(f.id)}">
+      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span></td>
+      <td>${esc(f.sph_unit||'')||'<span class="muted">—</span>'}</td>
+      <td>${esc(f.rank||'')||'<span class="muted">—</span>'}</td>
+      <td>${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')||'<span class="muted">—</span>'}</td>
+      ${TIER!=='public'?`<td>${esc(f.employer||'')||'<span class="muted">—</span>'}</td>`:''}
+      <td>${n?`<span class="chip warn">${n} course${n>1?'s':''}</span>`:'<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── PROFILE RENDER ───────────────────────────────────────── */
+function fld(k,v,fmt){
+  const has=v!==null&&v!==undefined&&String(v).trim()!=='';
+  const out=has?(fmt?fmt(v):esc(v)):'—';
+  return `<div class="fld"><div class="k">${esc(k)}</div><div class="v${has?'':' empty'}">${out}</div></div>`;
+}
+const fmtDate=d=>{
+  if(!d)return '—';
+  const dt=new Date(d+(String(d).length===10?'T00:00:00':''));
+  return isNaN(dt)?esc(d):dt.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+};
+
+function renderProf(id){
+  const f=FAC.find(x=>String(x.id)===String(id));
+  if(!f){
+    $('prof-body').innerHTML=`<button class="pback" id="pb">← Back to directory</button>
+      <div class="card"><div class="gate">That faculty member isn’t in the directory.</div></div>`;
+    $('pb').onclick=()=>go(null);
+    return;
+  }
+  let h=`<button class="pback" id="pb">← Back to directory</button>`;
+
+  /* header */
+  h+=`<div class="phead">
+    <div class="pavatar">${esc(initials(f).toUpperCase()||'?')}</div>
+    <div>
+      <h2>${esc(full(f))}</h2>
+      <div class="prole">${esc([f.rank,f.sph_unit].filter(Boolean).join(' · ')||'—')}</div>
+      <div class="pcats">${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div>
+    </div>
+    <div class="pact">
+      <button class="btn btn-p btn-s admin-only" id="btn-edit">✎ Edit</button>
+    </div>
+  </div>`;
+
+  /* contact + appointment — viewer tier and up */
+  if(TIER==='public'){
+    h+=`<div class="card"><h3>Appointment</h3>
+      <div class="gate"><b>Sign in</b> to see contact and appointment details.</div></div>`;
+  }else{
+    h+=`<div class="card"><h3>Contact &amp; Appointment</h3><div class="grid">
+      ${fld('Email',f.email,v=>`<a href="mailto:${esc(v)}" style="color:var(--teal)">${esc(v)}</a>`)}
+      ${fld('SPH Association',f.sph_association)}
+      ${fld('Appointment Type',f.appointment_type)}
+      ${fld('Employer',f.employer)}
+      ${fld('OHSU Employment Org',f.ohsu_employment_org)}
+      ${fld('Role When Active',f.role_when_active)}
+      ${fld('FTE in SPH',f.fte_in_sph)}
+      ${fld('Start Date',f.start_date,fmtDate)}
+    </div></div>`;
+  }
+
+  /* teaching — AY 26-27, live from the scheduling app */
+  h+=`<div class="card"><h3>Teaching · AY 2026–27</h3>${teachHTML(f.id)}</div>`;
+
+  /* admin-only sections */
+  if(TIER==='admin'){
+    h+=`<div class="card"><h3>Review &amp; Promotion <span class="lock">🔒 faculty admin</span></h3><div class="grid">
+      ${fld('Next Review Type',f.next_review_type)}
+      ${fld('Next Review Year',f.next_review_year)}
+      ${fld('Last Review Type',f.last_review_type)}
+      ${fld('Last Review Year',f.last_review_year)}
+      ${fld('Previous Promotion',f.previous_promotion_date)}
+      ${fld('Promotion Eligible',f.promotion_eligible_year)}
+      ${fld('Promotion Target',f.promotion_target)}
+      ${fld('Appt Expiration',f.appt_expiration_date,fmtDate)}
+    </div></div>`;
+
+    h+=`<div class="card"><h3>Identifiers <span class="lock">🔒 faculty admin</span></h3><div class="grid">
+      ${fld('Primary ID',f.primary_id)}
+      ${fld('OHSU ID',f.ohsu_id)}
+      ${fld('PSU ID',f.psu_id)}
+      ${fld('Source Updated',f.source_updated)}
+    </div></div>`;
+
+    if(N(f.special_notes)||N(f.notes)){
+      h+=`<div class="card"><h3>Notes <span class="lock">🔒 faculty admin</span></h3>`;
+      if(N(f.special_notes))h+=`<div class="longtext"><b>Special:</b> ${esc(f.special_notes)}</div>`;
+      if(N(f.notes))h+=`<div class="longtext">${esc(f.notes)}</div>`;
+      h+=`</div>`;
+    }
+  }else if(TIER==='viewer'){
+    h+=`<div class="card"><h3>Review &amp; Promotion</h3>
+      <div class="gate">Review, promotion, and identifier fields are visible to <b>faculty administrators</b> only.</div></div>`;
+  }
+
+  $('prof-body').innerHTML=h;
+  $('pb').onclick=()=>go(null);
+  const be=$('btn-edit');if(be)be.onclick=()=>openFM(f.id);
+}
+
+function teachHTML(fid){
+  const offs=TEACHING[fid]||[];
+  if(!offs.length)return `<div class="gate">No offerings assigned in AY 2026–27.</div>`;
+  let h='';
+  TERMS.forEach(t=>{
+    const list=offs.filter(o=>o.term===t);
+    if(!list.length)return;
+    h+=`<div class="tgrp"><div class="th">${esc(TL[t])}</div>`;
+    list.forEach(o=>{
+      const c=COURSES[o.course_id];
+      const name=c?c.full_name:'(course removed)';
+      const meta=[o.days,o.time,o.modality].filter(Boolean).join(' · ');
+      // Deep-link back into the scheduling app at this offering.
+      h+=`<div class="trow">
+        <a href="index.html?offering=${esc(o.id)}">${esc(name)}</a>
+        <span class="meta">${esc(meta)||'—'}</span>
+      </div>`;
+    });
+    h+=`</div>`;
+  });
+  return h;
+}
+
+/* ─── ROUTER ───────────────────────────────────────────────── */
+function go(id,push=true){
+  const u=new URL(window.location);
+  if(id)u.searchParams.set('id',id); else u.searchParams.delete('id');
+  if(push)history.pushState({id},'',u);
+  route(id);
+}
+function route(id){
+  const prof=!!id;
+  $('v-dir').classList.toggle('active',!prof);
+  $('v-prof').classList.toggle('active',prof);
+  if(prof)renderProf(id); else renderDir();
+  window.scrollTo(0,0);
+  const m=document.querySelector('main');if(m)m.scrollTop=0;
+}
+window.addEventListener('popstate',()=>{
+  route(new URL(window.location).searchParams.get('id'));
+});
+
+/* ─── EDIT MODAL ───────────────────────────────────────────── */
+const FM={ // element id → faculty column
+  'fm-last':'last_name','fm-first':'first_name','fm-email':'email','fm-unit':'sph_unit',
+  'fm-rank':'rank','fm-appt':'appointment_type','fm-assoc':'sph_association',
+  'fm-employer':'employer','fm-org':'ohsu_employment_org','fm-role':'role_when_active',
+  'fm-fte':'fte_in_sph','fm-start':'start_date','fm-exp':'appt_expiration_date',
+  'fm-pid':'primary_id','fm-ohsu':'ohsu_id','fm-psu':'psu_id',
+  'fm-nrt':'next_review_type','fm-nry':'next_review_year',
+  'fm-lrt':'last_review_type','fm-lry':'last_review_year',
+  'fm-ppd':'previous_promotion_date','fm-pey':'promotion_eligible_year','fm-pt':'promotion_target',
+  'fm-snotes':'special_notes','fm-notes':'notes'
+};
+const NUMCOLS=new Set(['fte_in_sph']);
+const DATECOLS=new Set(['start_date','appt_expiration_date']);
+
+function catboxHTML(sel){
+  const chosen=new Set(sel||[]);
+  return CATEGORIES.map(c=>
+    `<label><input type="checkbox" class="fm-cat" value="${esc(c)}"${chosen.has(c)?' checked':''}> ${esc(c)}</label>`
+  ).join('');
+}
+function chosenCats(){
+  return [...document.querySelectorAll('.fm-cat')].filter(c=>c.checked).map(c=>c.value);
+}
+
+function openFM(id){
+  eid=id??null;
+  const f=id?FAC.find(x=>String(x.id)===String(id)):null;
+  $('fm-title').textContent=f?'Edit Faculty':'Add Faculty';
+  $('btn-del-fac').style.display=f?'inline-flex':'none';
+  Object.entries(FM).forEach(([el,col])=>{
+    let v=f?f[col]:'';
+    if(DATECOLS.has(col)&&v)v=String(v).slice(0,10);   // date input wants YYYY-MM-DD
+    setv(el,v);
+  });
+  $('fm-cats').innerHTML=catboxHTML(f?f.categories:[]);
+  openM('mo-fac');
+}
+
+async function saveFac(){
+  if(!N(val('fm-last'))){setSS('⚠ Last name is required');return;}
+  const row={};
+  Object.entries(FM).forEach(([el,col])=>{
+    const raw=val(el);
+    row[col]=NUMCOLS.has(col)?NUM(raw):N(raw);
+  });
+  const cats=chosenCats();
+  const before=eid?snap(FAC.find(x=>String(x.id)===String(eid))):null;
+
+  if(eid){
+    setSS('Saving…');
+    const ok=await sbSave(sb.from('faculty').update(row).eq('id',eid),'● Saved');
+    if(!ok)return;
+    if(!await syncCats(eid,before?before.categories:[],cats))return;
+    closeM('mo-fac');
+    await reload();
+    const after=snap(FAC.find(x=>String(x.id)===String(eid)));
+    await logChange('update',eid,after&&after.name,before,after);
+    route(eid);
+  }else{
+    setSS('Adding…');
+    const {data,error}=await sb.from('faculty').insert(row).select().single();
+    if(error){setSS('⚠ Not added: '+error.message);return;}
+    if(!await syncCats(data.id,[],cats))return;
+    closeM('mo-fac');
+    await reload();
+    const after=snap(FAC.find(x=>String(x.id)===String(data.id)));
+    await logChange('create',data.id,after&&after.name,null,after);
+    setSS('● Faculty added');
+    go(data.id);
+  }
+}
+
+/* Category membership is a set, not a column: diff it and write only the delta. */
+async function syncCats(fid,oldCats,newCats){
+  const add=newCats.filter(c=>!(oldCats||[]).includes(c));
+  const del=(oldCats||[]).filter(c=>!newCats.includes(c));
+  if(add.length){
+    const ok=await sbSave(sb.from('faculty_category')
+      .insert(add.map(c=>({faculty_id:fid,category:c}))),null);
+    if(!ok)return false;
+  }
+  if(del.length){
+    const ok=await sbSave(sb.from('faculty_category')
+      .delete().eq('faculty_id',fid).in('category',del),null);
+    if(!ok)return false;
+  }
+  return true;
+}
+
+/* Delete is only ever reachable for someone with no scheduling footprint.
+   The FKs from offerings/instructor_meta would refuse anyway — we check first
+   so the admin gets an explanation instead of a raw constraint error. */
+async function delFac(){
+  const f=FAC.find(x=>String(x.id)===String(eid));
+  if(!f)return;
+  const taught=(TEACHING[eid]||[]).length;
+  const {count}=await sb.from('instructor_meta')
+    .select('faculty_id',{count:'exact',head:true}).eq('faculty_id',eid);
+  const onRoster=count||0;
+
+  if(taught||onRoster){
+    showCfm('Cannot delete',
+      `${full(f)} is still referenced by the scheduling app.`,
+      null,
+      `${taught?taught+' offering(s) assigned. ':''}${onRoster?'On the scheduling instructor roster. ':''}\n\n`+
+      `Faculty who have been scheduled are never deleted — move them to the Inactive or Emeriti category instead. `+
+      `Deletion exists only to undo a record created in error.`);
+    return;
+  }
+  const before=snap(f);
+  showCfm('Delete faculty record?',
+    `Permanently delete ${full(f)}?`,
+    async()=>{
+      const ok1=await sbSave(sb.from('faculty_category').delete().eq('faculty_id',eid),null);
+      if(!ok1)return;
+      const ok=await sbSave(sb.from('faculty').delete().eq('id',eid),'● Deleted');
+      if(!ok)return;
+      await logChange('delete',eid,before&&before.name,before,null);
+      closeM('mo-fac');
+      await reload();
+      go(null);
+    },
+    'This person has no offerings and is not on the scheduling roster, so deletion is safe. The audit log will retain a record.');
+}
+
+/* ─── AUDIT LOG (independent of the scheduling app's change_log) ── */
+function snap(f){
+  if(!f)return null;
+  const o={name:full(f)};
+  Object.values(FM).forEach(col=>{o[col]=f[col]??null;});
+  o.categories=(f.categories||[]).slice();
+  return o;
+}
+async function logChange(action,fid,name,before,after){
+  try{
+    await sb.from('faculty_change_log').insert({
+      changed_by:currentUserEmail, action, entity:'faculty',
+      faculty_id:fid, faculty_name:name||null,
+      before:before||null, after:after||null
+    });
+  }catch(e){/* the edit itself already succeeded; never fail the UI on the log */}
+}
+
+async function showLog(){
+  $('log-body').innerHTML='<div class="gate">Loading…</div>';
+  openM('mo-log');
+  const {data,error}=await sb.from('faculty_change_log')
+    .select('*').order('changed_at',{ascending:false}).limit(200);
+  if(error){$('log-body').innerHTML=`<div class="gate">⚠ ${esc(error.message)}</div>`;return;}
+  if(!data||!data.length){$('log-body').innerHTML='<div class="gate">No changes recorded yet.</div>';return;}
+  $('log-body').innerHTML=data.map(r=>{
+    const when=new Date(r.changed_at).toLocaleString('en-US',
+      {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+    const diffs=fieldDiffs(r.before,r.after);
+    return `<div style="padding:10px 0;border-bottom:1px solid #E8EDF3">
+      <div style="font-size:13px">
+        <span class="chip">${esc(r.action)}</span>
+        <b>${esc(r.faculty_name||'(unknown)')}</b>
+        <span class="muted" style="font-size:12px"> — ${esc(r.changed_by||'?')} · ${esc(when)}</span>
+      </div>
+      ${diffs?`<div style="font-size:12px;color:var(--dgray);margin-top:5px;line-height:1.6">${diffs}</div>`:''}
+    </div>`;
+  }).join('');
+}
+function fieldDiffs(before,after){
+  if(!before||!after)return '';
+  const out=[];
+  const keys=new Set([...Object.keys(before),...Object.keys(after)]);
+  keys.forEach(k=>{
+    if(k==='name')return;
+    const a=JSON.stringify(before[k]??null), b=JSON.stringify(after[k]??null);
+    if(a!==b)out.push(`<b>${esc(k)}</b>: ${esc(before[k]??'—')} → ${esc(after[k]??'—')}`);
+  });
+  return out.join('<br>');
+}
+
+/* ─── MODAL PLUMBING ───────────────────────────────────────── */
+function openM(id){$(id).classList.add('open');}
+function closeM(id){$(id).classList.remove('open');if(id==='mo-cfm')cfmCb=null;}
+function showCfm(title,msg,onOk,detail){
+  $('cfm-title').textContent=title;
+  $('cfm-msg').textContent=msg;
+  $('cfm-det').textContent=detail??'';
+  $('cfm-det').style.display=detail?'':'none';
+  cfmCb=onOk||null;
+  $('cfm-ok').style.display=onOk?'inline-flex':'none';
+  $('cfm-no').textContent=onOk?'Cancel':'Close';
+  openM('mo-cfm');
+}
+
+/* ─── AUTH BAR ─────────────────────────────────────────────── */
+function updateAuthBar(){
+  const slot=$('auth-slot');
+  if(currentUserEmail){
+    slot.innerHTML=`<span class="who">${esc(currentUserEmail)}</span>
+      <button class="btn btn-s" id="btn-out" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.3)">Sign out</button>`;
+    $('btn-out').onclick=async()=>{await sb.auth.signOut();location.href=location.pathname;};
+  }else{
+    slot.innerHTML=`<input id="au-email" type="email" placeholder="you@ohsu.edu">
+      <button class="btn btn-s" id="btn-in" style="background:rgba(255,255,255,.1);color:white;border-color:rgba(255,255,255,.3)">Sign in</button>`;
+    $('btn-in').onclick=async()=>{
+      const em=val('au-email').trim();
+      if(!em){setSS('⚠ Enter an email');return;}
+      setSS('Sending link…');
+      const {error}=await sb.auth.signInWithOtp({email:em,options:{emailRedirectTo:window.location.href}});
+      setSS(error?('⚠ '+error.message):'✉ Check your email');
+    };
+  }
+  $('tier-badge').classList.toggle('on',isAdmin());
+  document.body.classList.toggle('is-admin',isAdmin());
+}
+
+/* ─── RELOAD ───────────────────────────────────────────────── */
+async function reload(){
+  await loadData();
+  fillFilters();
+}
+
+/* ─── WIRING ───────────────────────────────────────────────── */
+function wire(){
+  ['f-q','f-cat','f-unit','f-teach'].forEach(id=>{
+    const e=$(id);if(!e)return;
+    e.addEventListener(id==='f-q'?'input':'change',renderDir);
+  });
+  $('dir-tb').addEventListener('click',e=>{
+    const tr=e.target.closest('tr[data-id]');
+    if(tr)go(tr.dataset.id);
+  });
+  $('btn-add').onclick=()=>openFM(null);
+  $('btn-log').onclick=showLog;
+  $('btn-save-fac').onclick=saveFac;
+  $('btn-del-fac').onclick=delFac;
+  $('cfm-ok').onclick=()=>{const cb=cfmCb;closeM('mo-cfm');if(cb)cb();};
+  document.querySelectorAll('[data-close]').forEach(b=>{
+    b.onclick=()=>closeM(b.dataset.close);
+  });
+  document.querySelectorAll('.mo').forEach(o=>{
+    o.addEventListener('click',e=>{if(e.target===o&&o.id!=='mo-fac')closeM(o.id);});
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape')document.querySelectorAll('.mo.open').forEach(o=>closeM(o.id));
+  });
+}
+
+/* ─── BOOT ─────────────────────────────────────────────────── */
+(async function boot(){
+  wire();
+  initSupabase();
+  // A magic-link return lands here with tokens in the hash; give Supabase a
+  // beat to consume them before we ask which tier we're in.
+  sb.auth.onAuthStateChange(()=>{});
+  try{
+    await loadData();
+  }catch(e){
+    $('ls').style.display='none';
+    $('app').style.display='flex';
+    setSS('⚠ Load failed: '+(e.message||e));
+    updateAuthBar();
+    return;
+  }
+  fillFilters();
+  updateAuthBar();
+  $('ls').style.display='none';
+  $('app').style.display='flex';
+  route(new URL(window.location).searchParams.get('id'));
+  setSS(TIER==='admin'?'Ready · admin':(TIER==='viewer'?'Ready · signed in':'Ready · public view'));
+})();
+</script>
+</body>
+</html>
