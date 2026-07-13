@@ -90,6 +90,14 @@ tbody tr.clickable{cursor:pointer}
 .gate b{color:var(--navy)}
 
 /* teaching list */
+.ayg{border-bottom:1px solid #E8EDF3}
+.ayg:last-child{border-bottom:none}
+.ayg>summary{cursor:pointer;padding:9px 16px;font-size:12px;font-weight:700;color:var(--navy);background:#FBFCFE;list-style:none;display:flex;align-items:center;gap:8px}
+.ayg>summary::-webkit-details-marker{display:none}
+.ayg>summary::before{content:'▸';color:var(--teal);font-size:10px;transition:transform .15s}
+.ayg[open]>summary::before{transform:rotate(90deg)}
+.ayg>summary:hover{background:#F2F6FB}
+.ayn{margin-left:auto;font-weight:400;color:var(--dgray);font-size:11px}
 .tgrp{border-bottom:1px solid #E8EDF3}
 .tgrp:last-child{border-bottom:none}
 .tgrp .th{font-size:11px;font-weight:700;color:var(--navy);padding:8px 16px;background:#FBFCFE;text-transform:uppercase;letter-spacing:.4px}
@@ -280,9 +288,12 @@ function initSupabase(){
 }
 
 /* ─── CONSTANTS ────────────────────────────────────────────── */
-const TERMS=['Summer26','Fall26','Winter27','Spring27'];
-const TL={Summer26:'Summer 2026',Fall26:'Fall 2026',Winter27:'Winter 2027',Spring27:'Spring 2027'};
-const TO={Summer26:0,Fall26:1,Winter27:2,Spring27:3};
+/* Terms come from the scheduling app's `terms` table — no longer hardcoded, so
+   faculty profiles gain each new academic year automatically.
+   RLS applies here too: an unpublished draft year is absent from the payload,
+   so it cannot leak into a public profile. */
+let TERM_MAP={};      // code → {label, academic_year, sort_order}
+let AY_ORDER=[];      // academic years, newest FIRST (current year on top)
 // The nine category sheets from the master workbook. Data-driven at render time,
 // but this seeds the edit modal so a new category can't be created by typo.
 const CATEGORIES=['Primary','NonPaidSecondary','NonPaidAffiliate','Courtesy',
@@ -346,18 +357,23 @@ async function loadData(){
     ? sb.from('faculty').select('*').eq('is_placeholder',false)
     : sb.from(src).select('*');
 
-  const [fR,cR,oR,catR]=await Promise.all([
+  const [fR,cR,oR,catR,tR]=await Promise.all([
     fq,
     sb.from('courses').select('id,full_name,prefix'),
     sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality'),
     // The admin source is the base table, which has no `categories` array —
     // membership lives in faculty_category. Fetch it separately for that tier.
     TIER==='admin' ? sb.from('faculty_category').select('faculty_id,category')
-                   : Promise.resolve({data:[],error:null})
+                   : Promise.resolve({data:[],error:null}),
+    sb.from('terms').select('code,label,academic_year,sort_order')
   ]);
-  for(const r of [fR,cR,oR,catR]){
+  for(const r of [fR,cR,oR,catR,tR]){
     if(r.error){setLM('');throw r.error;}
   }
+
+  TERM_MAP={};
+  (tR.data||[]).forEach(t=>{TERM_MAP[t.code]=t;});
+  AY_ORDER=[...new Set((tR.data||[]).map(t=>t.academic_year))].sort().reverse();
 
   FAC=(fR.data||[]);
   if(TIER==='admin'){
@@ -380,7 +396,11 @@ async function loadData(){
       (TEACHING[fid]=TEACHING[fid]||[]).push(o);
     });
   });
-  Object.values(TEACHING).forEach(list=>list.sort((a,b)=>(TO[a.term]??9)-(TO[b.term]??9)));
+  const rank=o=>{
+    const t=TERM_MAP[o.term];
+    return t?`${t.academic_year}|${String(t.sort_order).padStart(3,'0')}`:'~';
+  };
+  Object.values(TEACHING).forEach(list=>list.sort((a,b)=>rank(a).localeCompare(rank(b))));
 }
 
 /* ─── FILTERS ──────────────────────────────────────────────── */
@@ -504,7 +524,7 @@ function renderProf(id){
   }
 
   /* teaching — AY 26-27, live from the scheduling app */
-  h+=`<div class="card"><h3>Teaching · AY 2026–27</h3>${teachHTML(f.id)}</div>`;
+  h+=`<div class="card"><h3>Teaching</h3>${teachHTML(f.id)}</div>`;
 
   /* admin-only sections */
   if(TIER==='admin'){
@@ -542,27 +562,46 @@ function renderProf(id){
   const be=$('btn-edit');if(be)be.onclick=()=>openFM(f.id);
 }
 
+/* Grouped by academic year (newest first), then by term within the year.
+   Prior years are collapsed by default — the current year is what people came
+   to see; history is one click away rather than a wall of scrolling. */
 function teachHTML(fid){
   const offs=TEACHING[fid]||[];
-  if(!offs.length)return `<div class="gate">No offerings assigned in AY 2026–27.</div>`;
+  if(!offs.length)return `<div class="gate">No offerings assigned.</div>`;
+
   let h='';
-  TERMS.forEach(t=>{
-    const list=offs.filter(o=>o.term===t);
-    if(!list.length)return;
-    h+=`<div class="tgrp"><div class="th">${esc(TL[t])}</div>`;
-    list.forEach(o=>{
-      const c=COURSES[o.course_id];
-      const name=c?c.full_name:'(course removed)';
-      const meta=[o.days,o.time,o.modality].filter(Boolean).join(' · ');
-      // Deep-link back into the scheduling app at this offering.
-      h+=`<div class="trow">
-        <a href="index.html?offering=${esc(o.id)}">${esc(name)}</a>
-        <span class="meta">${esc(meta)||'—'}</span>
-      </div>`;
+  AY_ORDER.forEach((ay,idx)=>{
+    const inAY=offs.filter(o=>{const t=TERM_MAP[o.term];return t&&t.academic_year===ay;});
+    if(!inAY.length)return;
+    const current=(idx===0);
+    const n=inAY.length;
+    h+=`<details class="ayg"${current?' open':''}>
+      <summary>${esc(ay)} <span class="ayn">${n} course${n===1?'':'s'}</span></summary>`;
+
+    const codes=[...new Set(inAY.map(o=>o.term))]
+      .sort((a,b)=>(TERM_MAP[a]?.sort_order??99)-(TERM_MAP[b]?.sort_order??99));
+    codes.forEach(code=>{
+      const list=inAY.filter(o=>o.term===code);
+      h+=`<div class="tgrp"><div class="th">${esc(TERM_MAP[code]?.label||code)}</div>`;
+      list.forEach(o=>{
+        const c=COURSES[o.course_id];
+        const name=c?c.full_name:'(course removed)';
+        const meta=[o.days,o.time,o.modality].filter(Boolean).join(' · ');
+        // Deep-link back into the scheduling app at this offering.
+        h+=`<div class="trow">
+          <a href="index.html?offering=${esc(o.id)}">${esc(name)}</a>
+          <span class="meta">${esc(meta)||'—'}</span>
+        </div>`;
+      });
+      h+=`</div>`;
     });
-    h+=`</div>`;
+    h+=`</details>`;
   });
-  return h;
+  // Offerings whose term isn't in the terms table shouldn't exist (FK), but a
+  // silent disappearance would be worse than an honest note.
+  const orphan=offs.filter(o=>!TERM_MAP[o.term]);
+  if(orphan.length)h+=`<div class="gate">${orphan.length} offering(s) in an unrecognised term.</div>`;
+  return h||`<div class="gate">No offerings assigned.</div>`;
 }
 
 /* ─── ROUTER ───────────────────────────────────────────────── */
