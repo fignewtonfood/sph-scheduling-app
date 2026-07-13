@@ -194,6 +194,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <button data-view="instructors" id="nav-instructors" class="auth-only">👤 Instructors</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
     <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
+    <button id="btn-terms" class="admin-only admin-strict" style="display:none">🗓 Terms</button>
   </nav>
   <main>
 
@@ -448,6 +449,38 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 </div>
 
 <!-- LISTS EDITOR MODAL -->
+<div class="mo" id="mo-terms">
+  <div class="mc" style="max-width:820px">
+    <div class="mhd"><h3>Terms &amp; Academic Years</h3><button class="mx" data-close="mo-terms">×</button></div>
+    <div class="mbd" style="max-height:70vh;overflow:auto">
+      <div id="tm-body"></div>
+
+      <div style="margin-top:22px;border-top:2px solid var(--mgray);padding-top:16px">
+        <div class="fsec">New Academic Year</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-top:10px">
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:3px">Academic Year</label>
+            <input id="ny-ay" placeholder="AY27-28">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:3px">Start from</label>
+            <select id="ny-copy"></select>
+          </div>
+        </div>
+        <div id="ny-terms" style="margin-top:12px"></div>
+        <div id="ny-note" style="font-size:12px;color:var(--dgray);margin-top:10px;line-height:1.5"></div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn btn-p" id="btn-ny-create">Create Academic Year</button>
+        </div>
+      </div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-s" data-close="mo-terms">Close</button>
+      <button class="btn btn-p" id="btn-tm-save">Save Term Settings</button>
+    </div>
+  </div>
+</div>
+
 <div class="mo" id="mo-lists">
   <div class="modal med">
     <div class="mhd"><h3>Edit Dropdown Lists</h3><button class="mx" data-close="mo-lists">×</button></div>
@@ -952,6 +985,167 @@ function shortTerm(code){
   return m?m[1].slice(0,2)+m[2]:code;
 }
 const catCols=()=>9+TERMS.length+(canEdit()?1:0);
+
+/* ─── TERM MANAGEMENT (admin only) ─────────────────────────── */
+/* The three flags per term are the whole of "level 3". is_public publishes a
+   term to the world; is_pd_visible shows it to PDs; is_pd_editable lets them
+   change it. The DB enforces two coherence rules via CHECK constraints —
+   editable implies visible, public implies pd-visible — so the UI mirrors them
+   rather than trusting itself. */
+function openTerms(){
+  renderTermRows();
+  renderNewAY();
+  openM('mo-terms');
+}
+function renderTermRows(){
+  const byAY={};
+  TERM_ROWS.forEach(t=>{(byAY[t.academic_year]=byAY[t.academic_year]||[]).push(t);});
+  const ays=Object.keys(byAY).sort();
+  if(!ays.length){$('tm-body').innerHTML='<div style="color:var(--dgray);font-size:13px">No terms defined.</div>';return;}
+  let h='';
+  ays.forEach(ay=>{
+    const rows=byAY[ay].sort((a,b)=>a.sort_order-b.sort_order);
+    const offs=DB.offerings.filter(o=>rows.some(r=>r.code===o.term)).length;
+    h+=`<div style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <strong style="color:var(--navy);font-size:14px">${esc(ay)}</strong>
+        <span style="font-size:12px;color:var(--dgray)">${offs} offering${offs===1?'':'s'}</span>
+        <button class="btn btn-s ay-del" data-ay="${esc(ay)}" style="margin-left:auto;font-size:11px;color:var(--red);border-color:var(--red)">Delete year</button>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px">Term</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Anonymous visitors can see this term">Public</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Program Directors can see this term">PD sees</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Program Directors can edit offerings in this term">PD edits</th>
+        </tr></thead><tbody>`;
+    rows.forEach(t=>{
+      h+=`<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #E8EDF3">${esc(t.label)} <span style="color:#94A3B8;font-size:11px">${esc(t.code)}</span></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_public"${t.is_public?' checked':''}></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_visible"${t.is_pd_visible?' checked':''}></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_editable"${t.is_pd_editable?' checked':''}></td>
+      </tr>`;
+    });
+    h+=`</tbody></table></div>`;
+  });
+  $('tm-body').innerHTML=h;
+
+  // Keep the checkboxes coherent as they're clicked, so Save can't be refused
+  // by a CHECK constraint the user had no way of seeing.
+  document.querySelectorAll('#tm-body .tf').forEach(cb=>{
+    cb.addEventListener('change',()=>{
+      const code=cb.dataset.code,f=cb.dataset.f;
+      const get=n=>document.querySelector(`#tm-body .tf[data-code="${CSS.escape(code)}"][data-f="${n}"]`);
+      if(f==='is_public'&&cb.checked)      get('is_pd_visible').checked=true;   // public ⇒ PD sees
+      if(f==='is_pd_editable'&&cb.checked) get('is_pd_visible').checked=true;   // editable ⇒ PD sees
+      if(f==='is_pd_visible'&&!cb.checked){                                     // ⇒ neither
+        get('is_public').checked=false;
+        get('is_pd_editable').checked=false;
+      }
+    });
+  });
+  document.querySelectorAll('#tm-body .ay-del').forEach(b=>{
+    b.addEventListener('click',()=>delAY(b.dataset.ay));
+  });
+}
+
+async function saveTermFlags(){
+  const byCode={};
+  document.querySelectorAll('#tm-body .tf').forEach(cb=>{
+    (byCode[cb.dataset.code]=byCode[cb.dataset.code]||{})[cb.dataset.f]=cb.checked;
+  });
+  setSS('Saving terms…');
+  for(const [code,flags] of Object.entries(byCode)){
+    const cur=termRow(code);
+    if(cur&&['is_public','is_pd_visible','is_pd_editable'].every(f=>!!cur[f]===!!flags[f]))continue; // unchanged
+    const ok=await sbSave(sb.from('terms').update(flags).eq('code',code),null);
+    if(!ok)return;
+  }
+  setSS('● Term settings saved');
+  closeM('mo-terms');
+  await reloadAll();
+}
+
+/* AY27-28 → Summer27, Fall27, Winter28, Spring28.
+   Summer and Fall take the first year, Winter and Spring the second. */
+function deriveTerms(ay){
+  const m=String(ay).match(/(\d{2})\s*-\s*(\d{2})/);
+  if(!m)return [];
+  const y1=m[1],y2=m[2];
+  return [
+    {code:'Summer'+y1,label:'Summer 20'+y1,sort_order:1},
+    {code:'Fall'+y1,  label:'Fall 20'+y1,  sort_order:2},
+    {code:'Winter'+y2,label:'Winter 20'+y2,sort_order:3},
+    {code:'Spring'+y2,label:'Spring 20'+y2,sort_order:4}
+  ];
+}
+function renderNewAY(){
+  const cs=$('ny-copy');
+  cs.innerHTML='<option value="">Blank year (no offerings)</option>'+
+    AYS.map(a=>`<option value="${esc(a)}">Copy offerings from ${esc(a)}</option>`).join('');
+  $('ny-terms').innerHTML='';
+  $('ny-note').textContent='';
+  $('ny-ay').oninput=refreshNYTerms;
+  cs.onchange=refreshNYTerms;
+  refreshNYTerms();
+}
+function refreshNYTerms(){
+  const ay=val('ny-ay').trim();
+  const terms=deriveTerms(ay);
+  if(!terms.length){
+    $('ny-terms').innerHTML=`<div style="font-size:12px;color:#94A3B8">Enter an academic year like <code>AY27-28</code> and the terms will be derived.</div>`;
+  }else{
+    // Codes are editable: derivation is a guess, and a collision with an
+    // existing code would be rejected by the database anyway.
+    $('ny-terms').innerHTML=`<div style="font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:5px">Terms (editable)</div>`+
+      terms.map((t,i)=>`<div style="display:flex;gap:8px;margin-bottom:5px">
+        <input class="ny-code" data-i="${i}" value="${esc(t.code)}" style="width:130px">
+        <input class="ny-label" data-i="${i}" value="${esc(t.label)}" style="flex:1">
+      </div>`).join('');
+  }
+  const src=val('ny-copy');
+  const n=src?DB.offerings.filter(o=>{const t=termRow(o.term);return t&&t.academic_year===src;}).length:0;
+  $('ny-note').textContent=src
+    ? `Copies ${n} offering${n===1?'':'s'} from ${src}. Instructors, days, times, modality and caps carry over; enrollment and CRN are cleared. The new year starts hidden from both the public and PDs — you publish it here when it's ready.`
+    : 'Creates the terms with no offerings. Use this for an archival year you intend to populate separately.';
+}
+
+async function createAY(){
+  const ay=val('ny-ay').trim();
+  if(!ay){setSS('⚠ Enter an academic year');return;}
+  const codes=[...document.querySelectorAll('.ny-code')].map(e=>e.value.trim());
+  const labels=[...document.querySelectorAll('.ny-label')].map(e=>e.value.trim());
+  if(!codes.length||codes.some(c=>!c)){setSS('⚠ Every term needs a code');return;}
+  const terms=codes.map((c,i)=>({code:c,label:labels[i]||c,sort_order:i+1}));
+  const src=val('ny-copy')||null;
+
+  setSS('Creating…');
+  const {data,error}=await sb.rpc('create_academic_year',
+    {p_ay:ay,p_terms:terms,p_copy_from:src});
+  if(error){setSS('⚠ '+error.message);return;}
+  const n=(data&&data.offerings_copied)||0;
+  closeM('mo-terms');
+  await reloadAll();
+  activeAY=ay;applyAY();rebuildTermUI();renderAll();
+  setSS(`● ${ay} created — ${n} offering${n===1?'':'s'} copied`);
+}
+
+function delAY(ay){
+  const n=DB.offerings.filter(o=>{const t=termRow(o.term);return t&&t.academic_year===ay;}).length;
+  showCfm('Delete academic year?',
+    `Delete ${ay} and its ${n} offering${n===1?'':'s'}?`,
+    async()=>{
+      const {error}=await sb.rpc('delete_academic_year',{p_ay:ay});
+      if(error){setSS('⚠ '+error.message);return;}
+      closeM('mo-terms');
+      activeAY='';
+      await reloadAll();
+      rebuildTermUI();renderAll();
+      setSS('● '+ay+' deleted');
+    },
+    'Courses and instructors are untouched — only this year\'s terms and offerings are removed. The database will refuse if any offering has enrollment recorded.');
+}
 
 function renderSched(){
   const term=val('f-term'),pfx=val('f-pfx'),mod=val('f-mod'),lvl=val('f-level'),q=val('f-q').toLowerCase();
@@ -1463,7 +1657,7 @@ function renderActive(){
   else if(n==='catalog')renderCat();else if(n==='instructors')renderInst();
 }
 async function reloadAll(){
-  try{await loadData();renderAll();renderActive();}
+  try{await loadData();rebuildTermUI();renderAll();renderActive();}
   catch(e){setSS('⚠ Reload failed: '+e.message);}
 }
 async function sbSave(promise,okMsg){
@@ -2184,6 +2378,9 @@ function wireEvents(){
   $('btn-save-off').addEventListener('click',saveOff);
   $('btn-del-off').addEventListener('click',delOff);
   // Gantt
+  $('btn-terms').addEventListener('click',openTerms);
+  $('btn-tm-save').addEventListener('click',saveTermFlags);
+  $('btn-ny-create').addEventListener('click',createAY);
   $('g-term').addEventListener('change',renderGantt);
   $('ay-sel').addEventListener('change',e=>{
     activeAY=e.target.value;
