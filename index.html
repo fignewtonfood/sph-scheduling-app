@@ -130,6 +130,15 @@ tbody tr.incomplete:hover td{background:#FDE9A9}
 tbody tr.no-off td{color:#94A3B8}
 tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
 .flag-warn{color:#B45309;font-size:12px;cursor:help}
+/* Instructor name → faculty profile. Styled as a quiet link: underlined only on
+   hover, so a table full of names doesn't turn into a wall of blue. */
+a.ilink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray);cursor:pointer}
+a.ilink:hover{color:var(--teal);border-bottom-color:var(--teal)}
+/* Deep-link target (index.html?offering=<uuid>): flash, then settle into a
+   persistent left rule so the row stays findable after the animation ends. */
+tbody tr.deeplink td{background:#DCFCE7;animation:dlflash 1.4s ease-out 2}
+tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
+@keyframes dlflash{0%,100%{background:#DCFCE7}50%{background:#A7F3C8}}
 .flag-off{color:#DC2626;font-size:11px;cursor:help}
 #enr-banner{background:var(--ltgold);border-bottom:1px solid #F0C674;color:#92400E;padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px;flex-shrink:0}
 #enr-banner button{margin-left:auto;background:none;border:none;color:#92400E;font-size:16px;cursor:pointer;line-height:1;padding:0 4px}
@@ -161,6 +170,7 @@ tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
   <header>
     <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026–27</div></div>
     <div class="hsp"></div>
+    <a href="faculty.html" style="color:#CBD5E1;font-size:12px;text-decoration:none;border:1px solid rgba(255,255,255,.25);padding:4px 10px;border-radius:4px;margin-right:6px" title="Faculty directory">👤 Faculty</a>
     <span id="auth-slot" style="display:inline-flex;align-items:center;gap:8px;margin-right:6px"></span>
     <span id="admin-badge">ADMIN</span>
     <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Reload latest data from the database">↺ Sync</button>
@@ -771,6 +781,54 @@ function switchView(name){
 }
 
 /* ─── SCHEDULE ──────────────────────────────────────────────── */
+/* ─── CROSS-LINKING WITH THE FACULTY APP ───────────────────────
+   Offerings still carry instructor names as display strings, but every
+   instructor record holds its faculty UUID (instructor.id === faculty.id), so
+   the link needs no name matching against the faculty app — we resolve the
+   display name back to the id we already have.
+
+   TBD sentinels are slots, not people: they never link. Neither does a name we
+   can't resolve (an instructor removed from the roster while still assigned),
+   which renders as plain text rather than a dead link. */
+function facIdFor(name){
+  const n=String(name||'').trim();
+  if(!n||isTBD(n))return null;
+  const i=DB.instructors.find(x=>x.displayName===n);
+  return (i&&i.facultyId)?i.facultyId:null;
+}
+function facLink(name){
+  const n=String(name||'').trim();
+  if(!n)return '';
+  const id=facIdFor(n);
+  if(!id)return esc(n);
+  return `<a class="ilink" href="faculty.html?id=${esc(id)}" title="View faculty profile">${esc(n)}</a>`;
+}
+
+/* Deep link in from a faculty profile: index.html?offering=<offering uuid>.
+   The target offering may be hidden by whatever filters were last active, so we
+   clear them before scrolling — landing on an empty table would be worse than
+   useless. Runs once, then strips the parameter so a refresh doesn't re-fire. */
+function handleOfferingDeepLink(){
+  const uuid=new URL(window.location).searchParams.get('offering');
+  if(!uuid)return;
+  const off=DB.offerings.find(o=>String(o._uuid)===String(uuid));
+  // Strip the param either way — a stale link shouldn't keep re-triggering.
+  const u=new URL(window.location);u.searchParams.delete('offering');
+  history.replaceState({},'',u);
+  if(!off){setSS('⚠ That offering no longer exists');return;}
+
+  switchView('schedule');
+  ['f-term','f-pfx','f-mod','f-level','f-q'].forEach(id=>{const e=$(id);if(e)e.value='';});
+  const inc=$('f-incomplete');if(inc)inc.checked=false;
+  renderSched();
+
+  const tr=document.querySelector(`#sched-tb tr[data-uuid="${CSS.escape(uuid)}"]`);
+  if(!tr){setSS('⚠ Could not locate that offering');return;}
+  tr.classList.add('deeplink');
+  tr.scrollIntoView({behavior:'smooth',block:'center'});
+  setSS('● Showing '+(off.fullName||'offering'));
+}
+
 function renderSched(){
   const term=val('f-term'),pfx=val('f-pfx'),mod=val('f-mod'),lvl=val('f-level'),q=val('f-q').toLowerCase();
   let rows=DB.offerings.filter(o=>{
@@ -801,7 +859,7 @@ function renderSched(){
   rows.forEach(o=>{
     if(o.term!==lt){h+=`<tr class="gt"><td colspan="11">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
     if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="11">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
-    const i2=o.instructor2?` &amp; ${esc(o.instructor2)}`:'';
+    const i2=o.instructor2?` &amp; ${facLink(o.instructor2)}`:'';
     const eb=isAdmin?`<td><button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button></td>`:'';
     const ro=isAdmin?'':'readonly';
     const hasNotes=!!(o.adminNotes&&String(o.adminNotes).trim());
@@ -814,9 +872,9 @@ function renderSched(){
     const incomplete=isIncomplete(o);
     const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing instructor, days, modality, or cap (or instructor is TBD)">⚠</span>':'';
     const flags=(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
-    h+=`<tr${incomplete?' class="incomplete"':''}>
+    h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${permReq}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${esc(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${permReq}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -2141,6 +2199,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }else{
     setSS(isAdmin?'Admin mode':'Read-only');
   }
+  handleOfferingDeepLink();   // ?offering=<uuid> arriving from a faculty profile
 });
 
 /* ─── TOOLTIP for notes ──── */
