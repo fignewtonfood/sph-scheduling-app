@@ -92,12 +92,17 @@ tbody tr.clickable{cursor:pointer}
 /* teaching list */
 .ayg{border-bottom:1px solid #E8EDF3}
 .ayg:last-child{border-bottom:none}
-.ayg>summary{cursor:pointer;padding:9px 16px;font-size:12px;font-weight:700;color:var(--navy);background:#FBFCFE;list-style:none;display:flex;align-items:center;gap:8px}
+.ayg>summary{cursor:pointer;padding:11px 16px;font-size:12px;font-weight:700;color:var(--navy);background:#F2F6FB;list-style:none;display:flex;align-items:center;gap:8px;border-left:3px solid var(--teal);user-select:none}
 .ayg>summary::-webkit-details-marker{display:none}
-.ayg>summary::before{content:'▸';color:var(--teal);font-size:10px;transition:transform .15s}
+.ayg>summary::before{content:'▸';color:var(--teal);font-size:11px;transition:transform .15s}
 .ayg[open]>summary::before{transform:rotate(90deg)}
-.ayg>summary:hover{background:#F2F6FB}
-.ayn{margin-left:auto;font-weight:400;color:var(--dgray);font-size:11px}
+.ayg>summary:hover{background:var(--ltblue)}
+.ayn{font-weight:400;color:var(--dgray);font-size:11px}
+/* Explicit "Show courses" cue, since a bare triangle is easy to miss. Swaps to
+   "Hide" once open, and only the closed state carries the teal call-to-action. */
+.aytoggle{margin-left:auto;font-size:11px;font-weight:600;color:var(--teal)}
+.ayg[open]>summary .aytoggle{color:#94A3B8;font-weight:400}
+.ayg[open]>summary .aytoggle::after{content:'Hide'}
 .tgrp{border-bottom:1px solid #E8EDF3}
 .tgrp:last-child{border-bottom:none}
 .tgrp .th{font-size:11px;font-weight:700;color:var(--navy);padding:8px 16px;background:#FBFCFE;text-transform:uppercase;letter-spacing:.4px}
@@ -573,10 +578,13 @@ function teachHTML(fid){
   AY_ORDER.forEach((ay,idx)=>{
     const inAY=offs.filter(o=>{const t=TERM_MAP[o.term];return t&&t.academic_year===ay;});
     if(!inAY.length)return;
-    const current=(idx===0);
+    // Only one year of history? Open it — there's nothing to collapse toward.
+    // Multiple years? Collapse them all so the click affordance is the point.
+    const multi=AY_ORDER.filter(y=>offs.some(o=>TERM_MAP[o.term]&&TERM_MAP[o.term].academic_year===y)).length>1;
+    const open=!multi;
     const n=inAY.length;
-    h+=`<details class="ayg"${current?' open':''}>
-      <summary>${esc(ay)} <span class="ayn">${n} course${n===1?'':'s'}</span></summary>`;
+    h+=`<details class="ayg"${open?' open':''}>
+      <summary>${esc(ay)} <span class="ayn">${n} course${n===1?'':'s'}</span><span class="aytoggle">${open?'':'Show courses'}</span></summary>`;
 
     const codes=[...new Set(inAY.map(o=>o.term))]
       .sort((a,b)=>(TERM_MAP[a]?.sort_order??99)-(TERM_MAP[b]?.sort_order??99));
