@@ -301,7 +301,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <div class="mhd"><h3 id="om-title">Offering</h3><button class="mx" data-close="mo-off">×</button></div>
     <div class="mb"><div class="fg">
       <div class="fsec">Course &amp; Term</div>
-      <div><label>Term</label><select id="om-term"><option value="Summer26">Summer 2026</option><option value="Fall26">Fall 2026</option><option value="Winter27">Winter 2027</option><option value="Spring27">Spring 2027</option></select></div>
+      <div><label>Term</label><select id="om-term"></select></div>
       <div><label>Course</label><select id="om-course"></select></div>
       <div class="fsec">Instructors</div>
       <div><label>Instructor 1</label><select id="om-i1"></select></div>
@@ -969,6 +969,14 @@ function rebuildTermUI(){
     gt.innerHTML=TERMS.map(t=>`<option value="${esc(t)}">${esc(TL[t])}</option>`).join('');
     gt.value=TERMS.includes(keepG)?keepG:(TERMS[1]||TERMS[0]||'');
   }
+  // Offering-edit modal term picker. Was hardcoded to AY26-27 in the HTML, which
+  // silently blanked the term (select.value='') when editing any other year's
+  // offering — the blank then failed offerings_term_fkey on save.
+  const ot=$('om-term'),keepO=ot?ot.value:'';
+  if(ot){
+    ot.innerHTML=TERMS.map(t=>`<option value="${esc(t)}">${esc(TL[t])}</option>`).join('');
+    if(TERMS.includes(keepO))ot.value=keepO;
+  }
   // Catalog term columns
   const ch=$('cat-th');
   if(ch){
@@ -1218,7 +1226,7 @@ function renderSched(){
     const hasNotes=!!(o.adminNotes&&String(o.adminNotes).trim());
     const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
-    const potBadge=(o.term==='Summer26'&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
+    const potBadge=(/^Summer/i.test(o.term)&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
     const _crs=DB.courses.find(c=>c.id===o.courseId);
     const permReq=(_crs&&_crs.permission==='Yes')?' <span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
@@ -1496,9 +1504,10 @@ function renderCht(){
   const iMap={};DB.instructors.forEach(i=>{if(i.displayName)iMap[i.displayName]=i;});
   const agg={};
   DB.offerings.forEach(o=>{
+    if(!TERMS.includes(o.term))return;   // CHTool covers the active AY only
     [o.instructor1,o.instructor2].forEach(inst=>{
       if(!inst)return;
-      if(!agg[inst]){const i=iMap[inst]??{};agg[inst]={name:inst,cat:i.category??'',terms:{Summer26:[],Fall26:[],Winter27:[],Spring27:[]}};}
+      if(!agg[inst]){const i=iMap[inst]??{};agg[inst]={name:inst,cat:i.category??'',terms:Object.fromEntries(TERMS.map(t=>[t,[]]))};}
       const two=!!(o.instructor1&&o.instructor2),cr=crMap[o.courseId]??0,ex=fteEx.has(o.courseId);
       agg[inst].terms[o.term].push({course:o.fullName,cr,ex,two,pfx:o.prefix,grugb:o.grugb??'GR',eff:ex?0:(two?cr/2:cr)});
     });
@@ -1671,7 +1680,7 @@ function openOM(id){
   openM('mo-off');
 }
 function togglePotRow(){
-  const isSummer = val('om-term')==='Summer26';
+  const isSummer = /^Summer/i.test(val('om-term'));
   document.getElementById('pot-row').style.display = isSummer ? 'block' : 'none';
 }
 function autoEmail(n){const i=DB.instructors.find(x=>x.displayName===val('om-i'+n));if(i)setv('om-e'+n,i.email??'');}
@@ -2095,9 +2104,9 @@ function expCht(){
   const crMap={};DB.courses.forEach(c=>{crMap[c.id]=parseCR(c.credits);});
   const iMap={};DB.instructors.forEach(i=>{if(i.displayName)iMap[i.displayName]=i;});
   const agg={};
-  DB.offerings.forEach(o=>{[o.instructor1,o.instructor2].forEach(inst=>{
+  DB.offerings.forEach(o=>{if(!TERMS.includes(o.term))return;[o.instructor1,o.instructor2].forEach(inst=>{
     if(!inst)return;
-    if(!agg[inst]){const i=iMap[inst]??{};agg[inst]={name:inst,cat:i.category??'',terms:{Summer26:[],Fall26:[],Winter27:[],Spring27:[]}};}
+    if(!agg[inst]){const i=iMap[inst]??{};agg[inst]={name:inst,cat:i.category??'',terms:Object.fromEntries(TERMS.map(t=>[t,[]]))};}
     const two=!!(o.instructor1&&o.instructor2),cr=crMap[o.courseId]??0,ex=fteEx.has(o.courseId);
     agg[inst].terms[o.term].push({course:o.fullName,cr,ex,two,pfx:o.prefix,grugb:o.grugb??'GR',eff:ex?0:(two?cr/2:cr)});
   });});
@@ -2112,7 +2121,7 @@ function expCht(){
     const fte=(FTE_CATS.has(inst.cat)&&aE)?(aE*0.03).toFixed(3):'';
     rows.push([inst.name,inst.cat,...tc,...ec,...rc,...progs().map(p=>pc[p]||""),gc.GR||'',gc.UG||'',aR||'',aE?aE.toFixed(1):'',fte]);
   });
-  dlCSV(rows,'SPH_CHTool_AY26-27.csv');
+  dlCSV(rows,`SPH_CHTool_${activeAY||'AY'}.csv`);
 }
 /* ─── CHANGE REPORT ─────────────────────────────────────────────
    Reads the shared change_log table — global across all editors and
