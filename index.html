@@ -1130,7 +1130,7 @@ function refreshNYTerms(){
   const src=val('ny-copy');
   const n=src?DB.offerings.filter(o=>{const t=termRow(o.term);return t&&t.academic_year===src;}).length:0;
   $('ny-note').textContent=src
-    ? `Copies ${n} offering${n===1?'':'s'} from ${src}. Instructors, days, times, modality and caps carry over; enrollment and CRN are cleared. The new year starts hidden from both the public and PDs — you publish it here when it's ready.`
+    ? `Copies ${n} offering${n===1?'':'s'} from ${src}. Instructors, days, times, modality and caps carry over; enrollment, CRN and admin notes are cleared. The new year starts hidden from both the public and PDs — you publish it here when it's ready.`
     : 'Creates the terms with no offerings. Use this for an archival year you intend to populate separately.';
 }
 
