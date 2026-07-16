@@ -664,7 +664,8 @@ const TBD_NAMES=new Set(['TBD OH.','TBD PS.','TBD O.','TBD P.']);
 const isTBD=n=>{const s=String(n||'').trim();return TBD_NAMES.has(s)||/^TBD\b/i.test(s);};
 function isIncomplete(o){
   if(!o.instructor1||isTBD(o.instructor1))return true;
-  if(!String(o.days||'').trim())return true;
+  if(o.instructor2&&isTBD(o.instructor2))return true;        // I2 present but TBD (empty I2 is fine)
+  if(!String(o.days||'').trim()||isTBD(o.days))return true;  // days missing OR "TBD"
   if(!String(o.modality||'').trim())return true;
   if(!String(o.totalCap||'').trim())return true;
   return false;
@@ -1231,7 +1232,7 @@ function renderSched(){
     const _crs=DB.courses.find(c=>c.id===o.courseId);
     const permReq=(_crs&&_crs.permission==='Yes')?' <span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
     const incomplete=isIncomplete(o);
-    const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing instructor, days, modality, or cap (or instructor is TBD)">⚠</span>':'';
+    const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing/TBD instructor or days, or missing modality or cap">⚠</span>':'';
     const flags=(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
