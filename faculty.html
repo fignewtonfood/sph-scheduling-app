@@ -112,6 +112,24 @@ tbody tr.clickable{cursor:pointer}
 .tgrp .th{font-size:11px;font-weight:700;color:var(--navy);padding:8px 16px;background:#FBFCFE;text-transform:uppercase;letter-spacing:.4px}
 .trow{display:flex;gap:12px;align-items:baseline;padding:8px 16px;border-top:1px solid #F1F4F8;font-size:13px}
 .trow a{color:var(--teal);text-decoration:none;font-weight:600}
+/* web profile: photo, status, biography, education, research */
+.pav-wrap{position:relative;width:56px;height:56px;flex-shrink:0}
+.pav-wrap .pavatar{position:absolute;inset:0}
+.pphoto{position:absolute;inset:0;width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--lgray);border:1px solid var(--mgray)}
+.pphoto.broken{display:none}
+.phead .pmeta{margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip.ceph{background:#E7F0FA;color:var(--navy);border:1px solid #BBD3EC}
+.pill{font-size:10px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:9px;text-transform:uppercase}
+.pill.draft{background:#FEF3C7;color:#92400E}
+.pill.pub{background:#DCFCE7;color:#166534}
+.bio{padding:14px 16px;font-size:13px;line-height:1.6;color:var(--text)}
+.bio p{margin:0 0 10px}.bio p:last-child{margin-bottom:0}
+.bio ul{margin:0 0 10px 18px}.bio a{color:var(--teal)}
+.edulist .edurow{display:flex;gap:12px;align-items:baseline;padding:9px 16px;border-top:1px solid #F1F4F8;font-size:13px}
+.edulist .edurow:first-child{border-top:none}
+.edumain{flex:1}.eduyr{color:var(--dgray);font-size:12px;white-space:nowrap}
+.reslist{margin:0;padding:10px 16px 12px 34px;font-size:13px;line-height:1.6}
+.reslist li{margin-bottom:4px}
 .trow a:hover{text-decoration:underline}
 .trow .meta{color:var(--dgray);font-size:12px;margin-left:auto;text-align:right;white-space:nowrap}
 
@@ -324,6 +342,9 @@ let FAC=[];                         // faculty rows, shape depends on TIER
 let COURSES={};                     // course uuid → {full_name, prefix}
 let OFFERINGS=[];                   // raw offering rows (anon-readable)
 let TEACHING={};                    // faculty id → [offering, …]
+let WEBPROF={};                     // faculty id → web-profile row (viewer+admin)
+let EDU={};                         // faculty id → [education row, …] ordered
+let RES={};                         // faculty id → [research row, …] ordered
 let currentUserEmail=null;
 let eid=null;                       // faculty id being edited
 let cfmCb=null;
@@ -376,17 +397,23 @@ async function loadData(){
     ? sb.from('faculty').select('*').eq('is_placeholder',false)
     : sb.from(src).select('*');
 
-  const [fR,cR,oR,catR,tR]=await Promise.all([
+  const noRows=Promise.resolve({data:[],error:null});
+  const canProfile=TIER!=='public';   // web-profile tables are viewer+admin only (no anon grant)
+  const [fR,cR,oR,catR,tR,wpR,edR,rsR]=await Promise.all([
     fq,
     sb.from('courses').select('id,full_name,prefix'),
     sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality'),
     // The admin source is the base table, which has no `categories` array —
     // membership lives in faculty_category. Fetch it separately for that tier.
     TIER==='admin' ? sb.from('faculty_category').select('faculty_id,category')
-                   : Promise.resolve({data:[],error:null}),
-    sb.from('terms').select('code,label,academic_year,sort_order')
+                   : noRows,
+    sb.from('terms').select('code,label,academic_year,sort_order'),
+    // Website-profile content — signed-in tiers only; anon has no grant on these.
+    canProfile ? sb.from('faculty_web_profile').select('*') : noRows,
+    canProfile ? sb.from('faculty_education').select('*')   : noRows,
+    canProfile ? sb.from('faculty_research').select('*')    : noRows
   ]);
-  for(const r of [fR,cR,oR,catR,tR]){
+  for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR]){
     if(r.error){setLM('');throw r.error;}
   }
 
@@ -406,6 +433,14 @@ async function loadData(){
 
   COURSES={};(cR.data||[]).forEach(c=>{COURSES[c.id]=c;});
   OFFERINGS=(oR.data||[]);
+
+  // Website-profile content, indexed by faculty id (education/research kept ordered).
+  WEBPROF={};(wpR.data||[]).forEach(p=>{WEBPROF[p.faculty_id]=p;});
+  EDU={};(edR.data||[]).forEach(e=>{(EDU[e.faculty_id]=EDU[e.faculty_id]||[]).push(e);});
+  RES={};(rsR.data||[]).forEach(r=>{(RES[r.faculty_id]=RES[r.faculty_id]||[]).push(r);});
+  const bySort=(a,b)=>(a.sort_order??0)-(b.sort_order??0);
+  Object.values(EDU).forEach(a=>a.sort(bySort));
+  Object.values(RES).forEach(a=>a.sort(bySort));
 
   // faculty id → offerings they teach (either slot)
   TEACHING={};
@@ -509,6 +544,46 @@ const fmtDate=d=>{
   return isNaN(dt)?esc(d):dt.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
 };
 
+/* ─── WEB-PROFILE HELPERS ────────────────────── */
+// Website program labels, defaulted from the member's raw sph_unit but always
+// editable per profile. Keys are the messy real values from the master list.
+// PHE (CH/HP) bundles two website programs, so its default is a best-effort
+// ("Community Health", matching the live directory) that an admin can correct.
+const UNIT_TO_SUBCAT={
+  'PHE (CH/HP)':'Community Health','CH':'Community Health',
+  'PHE (UG)':'Community Health','UNST/PHE':'Community Health',
+  'HSMP (HMP / HSP)':'Health Management & Policy','HSMP':'Health Management & Policy',
+  'HMP':'Health Management & Policy','HS&P':'Health Management & Policy',
+  'HSMP / Dean':'Health Management & Policy',
+  'EPI':'Epidemiology','BSTA':'Biostatistics','PHP':'Public Health Practice',
+  'ESHH':'Environmental Systems & Human Health','AH&F':'Applied Health & Fitness'
+};
+const CEPH_LABEL={
+  primary_instructional:'CEPH Primary Instructional Faculty',
+  non_primary_instructional:'CEPH Non-Primary Instructional Faculty'
+};
+// Defaults render when a profile hasn't overridden them, so a page resembles the
+// website before anyone has touched a single profile field.
+const defaultSubcat=f=>UNIT_TO_SUBCAT[String(f.sph_unit||'').trim()]||'';
+const defaultCat=f=>N(f.rank)||'';   // per spec: category defaults from Rank
+
+// Minimal, safe Markdown → HTML for the biography. Escapes first, then applies a
+// deliberately small subset — paragraphs, line breaks, bold, italic, [links](url),
+// and dash/star bullets. No raw HTML passes through.
+function mdToHtml(src){
+  const e=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl=s=>e(s)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g,'$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return String(src||'').replace(/\r\n/g,'\n').split(/\n{2,}/).map(b=>{
+    const ls=b.split('\n');
+    if(ls.length&&ls.every(l=>/^\s*[-*]\s+/.test(l)))
+      return '<ul>'+ls.map(l=>`<li>${inl(l.replace(/^\s*[-*]\s+/,''))}</li>`).join('')+'</ul>';
+    return '<p>'+ls.map(inl).join('<br>')+'</p>';
+  }).join('');
+}
+
 function renderProf(id){
   const f=FAC.find(x=>String(x.id)===String(id));
   if(!f){
@@ -519,19 +594,59 @@ function renderProf(id){
   }
   let h=`<button class="pback" id="pb">← Back to directory</button>`;
 
-  /* header */
+  /* header — resembles the public website profile: photo, name, category /
+     subcategory (defaulted from rank / unit, editable), CEPH + publish status. */
+  const wp=WEBPROF[f.id]||null;
+  const pcat=(wp&&N(wp.profile_category))||defaultCat(f);
+  const psub=(wp&&N(wp.profile_subcategory))||defaultSubcat(f);
+  const roleLine=[pcat,psub].filter(Boolean).join(' · ')
+                 ||[f.rank,f.sph_unit].filter(Boolean).join(' · ')||'—';
+  const photo=wp&&N(wp.photo_url);
+  const cephTxt=wp&&wp.ceph_flag&&wp.ceph_flag!=='none'?CEPH_LABEL[wp.ceph_flag]:'';
+  const pubPill=TIER!=='public'
+    ?(wp&&wp.is_published?`<span class="pill pub">Published</span>`
+                         :`<span class="pill draft">Draft</span>`)
+    :'';
   h+=`<div class="phead">
-    <div class="pavatar">${esc(initials(f).toUpperCase()||'?')}</div>
+    <div class="pav-wrap">
+      <div class="pavatar">${esc(initials(f).toUpperCase()||'?')}</div>
+      ${photo?`<img class="pphoto" id="prof-photo" src="${esc(wp.photo_url)}" alt="${esc(full(f))}">`:''}
+    </div>
     <div>
       <h2>${esc(full(f))}</h2>
-      <div class="prole">${esc([f.rank,f.sph_unit].filter(Boolean).join(' · ')||'—')}</div>
+      <div class="prole">${esc(roleLine)}</div>
       <div class="pcats">${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div>
       ${roleBadges(f)}
+      ${(cephTxt||pubPill)?`<div class="pmeta">${cephTxt?`<span class="chip ceph">${esc(cephTxt)}</span>`:''}${pubPill}</div>`:''}
     </div>
     <div class="pact">
       <button class="btn btn-p btn-s admin-only" id="btn-edit">✎ Edit</button>
     </div>
   </div>`;
+
+  /* website profile — Biography / Education / Research (viewer + admin).
+     Anon has no grant on these tables, so the sections are signed-in only. */
+  if(TIER!=='public'){
+    const bioMd=wp&&N(wp.biography_md);
+    h+=`<div class="card"><h3>Biography</h3>`+
+       (bioMd?`<div class="bio">${mdToHtml(wp.biography_md)}</div>`
+             :`<div class="gate">No biography yet.</div>`)+`</div>`;
+
+    const eds=EDU[f.id]||[];
+    h+=`<div class="card"><h3>Education</h3>`+
+       (eds.length?`<div class="edulist">`+eds.map(ed=>{
+          const main=[ed.degree,ed.institution,ed.field].map(N).filter(Boolean).join(', ');
+          const yr=N(ed.year_text);
+          return `<div class="edurow"><span class="edumain">${esc(main)||'—'}</span>`+
+                 `${yr?`<span class="eduyr">${esc(yr)}</span>`:''}</div>`;
+        }).join('')+`</div>`
+       :`<div class="gate">No education entries yet.</div>`)+`</div>`;
+
+    const rs=RES[f.id]||[];
+    h+=`<div class="card"><h3>Research Interests</h3>`+
+       (rs.length?`<ul class="reslist">`+rs.map(r=>`<li>${esc(r.item)}</li>`).join('')+`</ul>`
+       :`<div class="gate">No research interests yet.</div>`)+`</div>`;
+  }
 
   /* contact + appointment — viewer tier and up */
   if(TIER==='public'){
@@ -585,6 +700,8 @@ function renderProf(id){
   }
 
   $('prof-body').innerHTML=h;
+  const ph=$('prof-photo');
+  if(ph)ph.addEventListener('error',()=>ph.classList.add('broken'));  // fall back to initials
   $('pb').onclick=()=>go(null);
   const be=$('btn-edit');if(be)be.onclick=()=>openFM(f.id);
 }
