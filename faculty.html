@@ -130,6 +130,18 @@ tbody tr.clickable{cursor:pointer}
 .edumain{flex:1}.eduyr{color:var(--dgray);font-size:12px;white-space:nowrap}
 .reslist{margin:0;padding:10px 16px 12px 34px;font-size:13px;line-height:1.6}
 .reslist li{margin-bottom:4px}
+/* profile edit modal: repeatable rows + roster publish marker */
+.hint{font-size:11px;color:var(--dgray);margin-top:4px}
+.sect .hintr{float:right;font-weight:400;text-transform:none;letter-spacing:0;color:#8296AE;font-size:10px}
+.sect .addrow{float:right;font:inherit;font-size:11px;font-weight:600;color:var(--teal);background:none;border:none;cursor:pointer;padding:0}
+.repeat{display:flex;flex-direction:column;gap:8px}
+.repeat-row{display:flex;gap:6px;align-items:center}
+.repeat-row input{flex:1;min-width:0}
+.edu-row .rd{flex:0 0 84px}.edu-row .ry{flex:0 0 92px}
+.rrm{flex:0 0 auto;width:28px;height:32px;border:1px solid var(--mgray);background:white;color:var(--dgray);border-radius:5px;cursor:pointer;font-size:15px;line-height:1}
+.rrm:hover{background:var(--ltred);color:var(--red);border-color:var(--red)}
+.pubdot{color:#16A34A;font-size:9px;vertical-align:middle}
+.phead .pact{flex-direction:column;align-items:stretch}
 .trow a:hover{text-decoration:underline}
 .trow .meta{color:var(--dgray);font-size:12px;margin-left:auto;text-align:right;white-space:nowrap}
 
@@ -185,6 +197,7 @@ tbody tr.clickable{cursor:pointer}
         <input type="search" id="f-q" placeholder="Search name, unit, employer…">
         <select id="f-cat"><option value="">All categories</option></select>
         <select id="f-unit"><option value="">All units</option></select>
+        <select id="f-pub" class="admin-only"><option value="">All profiles</option><option value="pub">Published</option><option value="draft">Draft / unpublished</option></select>
         <label style="font-size:12px;color:var(--dgray);display:flex;align-items:center;gap:5px">
           <input type="checkbox" id="f-teach"> Teaching this year
         </label>
@@ -273,6 +286,41 @@ tbody tr.clickable{cursor:pointer}
   </div>
 </div>
 
+<!-- ── WEBSITE PROFILE MODAL ─────────────────────────── -->
+<div class="mo" id="mo-prof">
+  <div class="mc">
+    <div class="mh"><h3 id="pm-title">Website Profile</h3><button class="x" data-close="mo-prof">×</button></div>
+    <div class="mb f">
+      <div class="fg">
+        <div class="sect">Directory display</div>
+        <div><label>Profile Category</label><input id="pm-cat" placeholder="e.g. Adjunct Faculty"></div>
+        <div><label>Profile Subcategory</label><input id="pm-sub" placeholder="e.g. Community Health"></div>
+        <div><label>CEPH Instructional Faculty</label><select id="pm-ceph">
+          <option value="none">None</option>
+          <option value="primary_instructional">CEPH Primary Instructional Faculty</option>
+          <option value="non_primary_instructional">CEPH Non-Primary Instructional Faculty</option>
+        </select></div>
+        <div><label>Photo URL</label><input id="pm-photo" placeholder="https://…"></div>
+        <div class="full"><label class="rolechk"><input type="checkbox" id="pm-pub"> Publish this profile</label>
+          <div class="hint">When the public website feed is built, only published profiles will appear.</div></div>
+
+        <div class="sect">Biography <span class="hintr">Markdown</span></div>
+        <div class="full"><textarea id="pm-bio" placeholder="Supports **bold**, *italic*, [links](https://…) and - bullet lists."></textarea></div>
+
+        <div class="sect">Education <button type="button" class="addrow" id="pm-edu-add">+ Add</button></div>
+        <div class="full repeat" id="pm-edu"></div>
+
+        <div class="sect">Research Interests <button type="button" class="addrow" id="pm-res-add">+ Add</button></div>
+        <div class="full repeat" id="pm-res"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn" data-close="mo-prof">Cancel</button>
+      <button class="btn btn-p" id="btn-save-prof">Save Profile</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── CONFIRM MODAL ──────────────────────────────────────────── -->
 <div class="mo" id="mo-cfm">
   <div class="mc sm">
@@ -347,6 +395,7 @@ let EDU={};                         // faculty id → [education row, …] order
 let RES={};                         // faculty id → [research row, …] ordered
 let currentUserEmail=null;
 let eid=null;                       // faculty id being edited
+let pmId=null;                      // faculty id whose web profile is being edited
 let cfmCb=null;
 
 /* ─── UTILS ────────────────────────────────────────────────── */
@@ -482,13 +531,15 @@ function filtered(){
   const q=val('f-q').toLowerCase().trim(),
         cat=val('f-cat'), unit=val('f-unit'),
         teachOnly=$('f-teach').checked,
-        showInact=$('f-inact').checked;
+        showInact=$('f-inact').checked, pub=val('f-pub');
   return FAC.filter(f=>{
     // Explicitly filtering TO the Inactive category overrides the hide-by-default.
     if(!showInact&&cat!=='Inactive'&&isInactive(f))return false;
     if(cat&&!(f.categories||[]).includes(cat))return false;
     if(unit&&f.sph_unit!==unit)return false;
     if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
+    if(pub==='pub'  &&!(WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
+    if(pub==='draft'&& (WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
     if(q){
       const hay=[f.first_name,f.last_name,f.sph_unit,f.rank,f.employer,f.email]
         .filter(Boolean).join(' ').toLowerCase();
@@ -515,7 +566,7 @@ function renderDir(){
   $('dir-tb').innerHTML=rows.map(f=>{
     const n=(TEACHING[f.id]||[]).length;
     return `<tr class="clickable" data-id="${esc(f.id)}">
-      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}</td>
+      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${(WEBPROF[f.id]&&WEBPROF[f.id].is_published)?` <span class="pubdot" title="Published profile">●</span>`:''}${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}</td>
       <td>${esc(f.sph_unit||'')||'<span class="muted">—</span>'}</td>
       <td>${esc(f.rank||'')||'<span class="muted">—</span>'}</td>
       <td>${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')||'<span class="muted">—</span>'}</td>
@@ -620,7 +671,8 @@ function renderProf(id){
       ${(cephTxt||pubPill)?`<div class="pmeta">${cephTxt?`<span class="chip ceph">${esc(cephTxt)}</span>`:''}${pubPill}</div>`:''}
     </div>
     <div class="pact">
-      <button class="btn btn-p btn-s admin-only" id="btn-edit">✎ Edit</button>
+      <button class="btn btn-p btn-s admin-only" id="btn-edit">✎ Edit record</button>
+      <button class="btn btn-s admin-only" id="btn-edit-prof">✎ Edit profile</button>
     </div>
   </div>`;
 
@@ -704,6 +756,7 @@ function renderProf(id){
   if(ph)ph.addEventListener('error',()=>ph.classList.add('broken'));  // fall back to initials
   $('pb').onclick=()=>go(null);
   const be=$('btn-edit');if(be)be.onclick=()=>openFM(f.id);
+  const bp=$('btn-edit-prof');if(bp)bp.onclick=()=>openPM(f.id);
 }
 
 /* Grouped by academic year (newest first), then by term within the year.
@@ -913,6 +966,90 @@ async function delFac(){
     'This person has no offerings and is not on the scheduling roster, so deletion is safe. The audit log will retain a record.');
 }
 
+function eduRowHTML(e){e=e||{};
+  return `<div class="repeat-row edu-row">`+
+    `<input class="rd" placeholder="Degree" value="${esc(e.degree||'')}">`+
+    `<input class="ri" placeholder="Institution" value="${esc(e.institution||'')}">`+
+    `<input class="rf" placeholder="Field" value="${esc(e.field||'')}">`+
+    `<input class="ry" placeholder="Year" value="${esc(e.year_text||'')}">`+
+    `<button type="button" class="rrm" title="Remove">×</button></div>`;
+}
+function resRowHTML(r){r=r||{};
+  return `<div class="repeat-row res-row">`+
+    `<input class="rt" placeholder="Research interest" value="${esc(r.item||'')}">`+
+    `<button type="button" class="rrm" title="Remove">×</button></div>`;
+}
+function openPM(fid){
+  pmId=fid;
+  const f=FAC.find(x=>String(x.id)===String(fid));
+  if(!f)return;
+  const wp=WEBPROF[fid]||null;
+  $('pm-title').textContent='Website Profile — '+full(f);
+  setv('pm-cat',(wp&&N(wp.profile_category))||defaultCat(f)||'');
+  setv('pm-sub',(wp&&N(wp.profile_subcategory))||defaultSubcat(f)||'');
+  setv('pm-ceph',(wp&&wp.ceph_flag)||'none');
+  setv('pm-photo',(wp&&wp.photo_url)||'');
+  setv('pm-bio',(wp&&wp.biography_md)||'');
+  $('pm-pub').checked=!!(wp&&wp.is_published);
+  const eds=EDU[fid]||[], rss=RES[fid]||[];
+  $('pm-edu').innerHTML=(eds.length?eds:[{}]).map(eduRowHTML).join('');
+  $('pm-res').innerHTML=(rss.length?rss:[{}]).map(resRowHTML).join('');
+  openM('mo-prof');
+}
+function readRepeat(cid,fn){return [...$(cid).querySelectorAll('.repeat-row')].map(fn);}
+async function replaceChildRows(table,fid,rows){
+  const ok=await sbSave(sb.from(table).delete().eq('faculty_id',fid),null);
+  if(!ok)return false;
+  if(rows.length){
+    const payload=rows.map((r,i)=>Object.assign({faculty_id:fid,sort_order:i},r));
+    const ok2=await sbSave(sb.from(table).insert(payload),null);
+    if(!ok2)return false;
+  }
+  return true;
+}
+function profileSnap(fid){
+  const wp=WEBPROF[fid]||{};
+  return {
+    category:wp.profile_category??null, subcategory:wp.profile_subcategory??null,
+    ceph_flag:wp.ceph_flag??'none', photo_url:wp.photo_url??null,
+    is_published:!!wp.is_published, biography_md:wp.biography_md??null,
+    education:(EDU[fid]||[]).map(e=>({degree:e.degree,institution:e.institution,field:e.field,year_text:e.year_text})),
+    research:(RES[fid]||[]).map(r=>r.item)
+  };
+}
+async function savePM(){
+  const fid=pmId; if(!fid)return;
+  const f=FAC.find(x=>String(x.id)===String(fid));
+  const existed=!!WEBPROF[fid];
+  const before=profileSnap(fid);
+  const wpRow={
+    faculty_id:fid,
+    profile_category:N(val('pm-cat')),
+    profile_subcategory:N(val('pm-sub')),
+    biography_md:N(val('pm-bio')),
+    ceph_flag:val('pm-ceph')||'none',
+    photo_url:N(val('pm-photo')),
+    is_published:$('pm-pub').checked
+  };
+  setSS('Saving…');
+  const ok=await sbSave(sb.from('faculty_web_profile').upsert(wpRow,{onConflict:'faculty_id'}),'● Saved');
+  if(!ok)return;
+  const eduRows=readRepeat('pm-edu',r=>({
+    degree:N(r.querySelector('.rd').value),
+    institution:N(r.querySelector('.ri').value),
+    field:N(r.querySelector('.rf').value),
+    year_text:N(r.querySelector('.ry').value)
+  })).filter(e=>e.degree||e.institution||e.field||e.year_text);
+  if(!await replaceChildRows('faculty_education',fid,eduRows))return;
+  const resRows=readRepeat('pm-res',r=>({item:N(r.querySelector('.rt').value)})).filter(r=>r.item);
+  if(!await replaceChildRows('faculty_research',fid,resRows))return;
+  closeM('mo-prof');
+  await reload();
+  const after=profileSnap(fid);
+  await logChange(existed?'update':'create',fid,f&&full(f),before,after,'faculty_web_profile');
+  route(fid);
+}
+
 /* ─── AUDIT LOG (independent of the scheduling app's change_log) ── */
 function snap(f){
   if(!f)return null;
@@ -923,10 +1060,10 @@ function snap(f){
   o.categories=(f.categories||[]).slice();
   return o;
 }
-async function logChange(action,fid,name,before,after){
+async function logChange(action,fid,name,before,after,entity){
   try{
     await sb.from('faculty_change_log').insert({
-      changed_by:currentUserEmail, action, entity:'faculty',
+      changed_by:currentUserEmail, action, entity:entity||'faculty',
       faculty_id:fid, faculty_name:name||null,
       before:before||null, after:after||null
     });
@@ -1013,7 +1150,7 @@ async function reload(){
 
 /* ─── WIRING ───────────────────────────────────────────────── */
 function wire(){
-  ['f-q','f-cat','f-unit','f-teach','f-inact'].forEach(id=>{
+  ['f-q','f-cat','f-unit','f-pub','f-teach','f-inact'].forEach(id=>{
     const e=$(id);if(!e)return;
     e.addEventListener(id==='f-q'?'input':'change',renderDir);
   });
@@ -1025,12 +1162,18 @@ function wire(){
   $('btn-log').onclick=showLog;
   $('btn-save-fac').onclick=saveFac;
   $('btn-del-fac').onclick=delFac;
+  $('btn-save-prof').onclick=savePM;
+  $('pm-edu-add').onclick=()=>$('pm-edu').insertAdjacentHTML('beforeend',eduRowHTML());
+  $('pm-res-add').onclick=()=>$('pm-res').insertAdjacentHTML('beforeend',resRowHTML());
+  ['pm-edu','pm-res'].forEach(cid=>$(cid).addEventListener('click',e=>{
+    const rm=e.target.closest('.rrm'); if(rm)rm.closest('.repeat-row').remove();
+  }));
   $('cfm-ok').onclick=()=>{const cb=cfmCb;closeM('mo-cfm');if(cb)cb();};
   document.querySelectorAll('[data-close]').forEach(b=>{
     b.onclick=()=>closeM(b.dataset.close);
   });
   document.querySelectorAll('.mo').forEach(o=>{
-    o.addEventListener('click',e=>{if(e.target===o&&o.id!=='mo-fac')closeM(o.id);});
+    o.addEventListener('click',e=>{if(e.target===o&&o.id!=='mo-fac'&&o.id!=='mo-prof')closeM(o.id);});
   });
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape')document.querySelectorAll('.mo.open').forEach(o=>closeM(o.id));
