@@ -141,6 +141,20 @@ tbody tr.clickable{cursor:pointer}
 .rrm{flex:0 0 auto;width:28px;height:32px;border:1px solid var(--mgray);background:white;color:var(--dgray);border-radius:5px;cursor:pointer;font-size:15px;line-height:1}
 .rrm:hover{background:var(--ltred);color:var(--red);border-color:var(--red)}
 .pubdot{color:#16A34A;font-size:9px;vertical-align:middle}
+/* CEPH designation. Required by accreditation to appear on public-facing
+   profiles, so it renders at every tier — including anon. */
+.cephsup{color:var(--teal);font-weight:700;font-size:10px;vertical-align:super;margin-left:1px;cursor:help}
+.ceph-legend{font-size:11px;color:var(--dgray);white-space:nowrap;margin-left:auto}
+.ceph-legend sup{color:var(--teal);font-weight:700}
+/* Per-item publish state. Unpublished items still render in-app — the flag
+   only decides what the future website feed carries. */
+.ptag{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#92400E;background:var(--ltgold);border-radius:8px;padding:1px 6px;margin-left:7px;vertical-align:middle}
+.pubchk{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dgray);white-space:nowrap;flex:0 0 auto;font-weight:400;margin:0;cursor:pointer}
+.pubchk input{flex:0 0 auto;width:auto;margin:0;cursor:pointer}
+.reslist li a,.awdlist li a{color:var(--teal)}
+/* Returning from a profile lands on that person's row; the flash says which. */
+tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
+@keyframes rowflash{0%{background:var(--ltgold)}100%{background:transparent}}
 .phead .pact{flex-direction:column;align-items:stretch}
 .trow a:hover{text-decoration:underline}
 .trow .meta{color:var(--dgray);font-size:12px;margin-left:auto;text-align:right;white-space:nowrap}
@@ -198,6 +212,12 @@ tbody tr.clickable{cursor:pointer}
         <select id="f-cat"><option value="">All categories</option></select>
         <select id="f-unit"><option value="">All units</option></select>
         <select id="f-pub" class="admin-only"><option value="">All profiles</option><option value="pub">Published</option><option value="draft">Draft / unpublished</option></select>
+        <select id="f-ceph">
+          <option value="">All CEPH statuses</option>
+          <option value="primary_instructional">CEPH Primary</option>
+          <option value="non_primary_instructional">CEPH Non-Primary</option>
+          <option value="none">No CEPH status</option>
+        </select>
         <label style="font-size:12px;color:var(--dgray);display:flex;align-items:center;gap:5px">
           <input type="checkbox" id="f-teach"> Teaching this year
         </label>
@@ -206,6 +226,7 @@ tbody tr.clickable{cursor:pointer}
         </label>
         <button class="btn btn-p btn-s admin-only" id="btn-add">+ Add Faculty</button>
         <button class="btn btn-s admin-only" id="btn-log">📄 Change Log</button>
+        <span class="ceph-legend"><sup>1</sup> CEPH Primary &middot; <sup>2</sup> CEPH Non-Primary</span>
         <span class="cnt" id="dir-cnt"></span>
       </div>
       <div class="tw">
@@ -233,6 +254,7 @@ tbody tr.clickable{cursor:pointer}
         <div><label>Last Name *</label><input id="fm-last"></div>
         <div><label>First Name</label><input id="fm-first"></div>
         <div><label>Email</label><input id="fm-email" type="email"></div>
+        <div><label>Secondary Email</label><input id="fm-email2" type="email"></div>
         <div><label>SPH Unit</label><input id="fm-unit" placeholder="EPI, PHE (CH/HP), HSMP…"></div>
 
         <div class="sect">Categories</div>
@@ -307,11 +329,14 @@ tbody tr.clickable{cursor:pointer}
         <div class="sect">Biography <span class="hintr">Markdown</span></div>
         <div class="full"><textarea id="pm-bio" placeholder="Supports **bold**, *italic*, [links](https://…) and - bullet lists."></textarea></div>
 
-        <div class="sect">Education <button type="button" class="addrow" id="pm-edu-add">+ Add</button></div>
+        <div class="sect">Education, Fellowships, and Residencies <button type="button" class="addrow" id="pm-edu-add">+ Add</button></div>
         <div class="full repeat" id="pm-edu"></div>
 
-        <div class="sect">Research Interests <button type="button" class="addrow" id="pm-res-add">+ Add</button></div>
+        <div class="sect">Research and Publications <span class="hintr">Links: [text](https://…)</span><button type="button" class="addrow" id="pm-res-add">+ Add</button></div>
         <div class="full repeat" id="pm-res"></div>
+
+        <div class="sect">Awards and Honors <span class="hintr">Links: [text](https://…)</span><button type="button" class="addrow" id="pm-awd-add">+ Add</button></div>
+        <div class="full repeat" id="pm-awd"></div>
       </div>
     </div>
     <div class="mf">
@@ -393,7 +418,10 @@ let TEACHING={};                    // faculty id → [offering, …]
 let WEBPROF={};                     // faculty id → web-profile row (viewer+admin)
 let EDU={};                         // faculty id → [education row, …] ordered
 let RES={};                         // faculty id → [research row, …] ordered
+let AWD={};                         // faculty id → [award row, …] ordered
+let CEPH={};                        // faculty id → ceph_flag  (ALL tiers, incl. anon)
 let currentUserEmail=null;
+let lastViewedId=null;              // set on profile view; restores list position
 let eid=null;                       // faculty id being edited
 let pmId=null;                      // faculty id whose web profile is being edited
 let cfmCb=null;
@@ -448,7 +476,7 @@ async function loadData(){
 
   const noRows=Promise.resolve({data:[],error:null});
   const canProfile=TIER!=='public';   // web-profile tables are viewer+admin only (no anon grant)
-  const [fR,cR,oR,catR,tR,wpR,edR,rsR]=await Promise.all([
+  const [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]=await Promise.all([
     fq,
     sb.from('courses').select('id,full_name,prefix'),
     sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality'),
@@ -460,9 +488,15 @@ async function loadData(){
     // Website-profile content — signed-in tiers only; anon has no grant on these.
     canProfile ? sb.from('faculty_web_profile').select('*') : noRows,
     canProfile ? sb.from('faculty_education').select('*')   : noRows,
-    canProfile ? sb.from('faculty_research').select('*')    : noRows
+    canProfile ? sb.from('faculty_research').select('*')    : noRows,
+    canProfile ? sb.from('faculty_award').select('*')       : noRows,
+    // CEPH status is the one web-profile field that is public by design:
+    // accreditation requires the designation on public-facing profiles. It
+    // comes from its own two-column anon-granted view, never from
+    // faculty_web_profile, which stays signed-in only.
+    sb.from('faculty_ceph_public').select('faculty_id,ceph_flag')
   ]);
-  for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR]){
+  for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]){
     if(r.error){setLM('');throw r.error;}
   }
 
@@ -487,9 +521,12 @@ async function loadData(){
   WEBPROF={};(wpR.data||[]).forEach(p=>{WEBPROF[p.faculty_id]=p;});
   EDU={};(edR.data||[]).forEach(e=>{(EDU[e.faculty_id]=EDU[e.faculty_id]||[]).push(e);});
   RES={};(rsR.data||[]).forEach(r=>{(RES[r.faculty_id]=RES[r.faculty_id]||[]).push(r);});
+  AWD={};(awR.data||[]).forEach(a=>{(AWD[a.faculty_id]=AWD[a.faculty_id]||[]).push(a);});
+  CEPH={};(cphR.data||[]).forEach(c=>{CEPH[c.faculty_id]=c.ceph_flag;});
   const bySort=(a,b)=>(a.sort_order??0)-(b.sort_order??0);
   Object.values(EDU).forEach(a=>a.sort(bySort));
   Object.values(RES).forEach(a=>a.sort(bySort));
+  Object.values(AWD).forEach(a=>a.sort(bySort));
 
   // faculty id → offerings they teach (either slot)
   TEACHING={};
@@ -529,7 +566,7 @@ const isInactive=f=>(f.categories||[]).includes('Inactive');
 
 function filtered(){
   const q=val('f-q').toLowerCase().trim(),
-        cat=val('f-cat'), unit=val('f-unit'),
+        cat=val('f-cat'), unit=val('f-unit'), ceph=val('f-ceph'),
         teachOnly=$('f-teach').checked,
         showInact=$('f-inact').checked, pub=val('f-pub');
   return FAC.filter(f=>{
@@ -540,8 +577,9 @@ function filtered(){
     if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
     if(pub==='pub'  &&!(WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
     if(pub==='draft'&& (WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
+    if(ceph&&(cephOf(f)||'none')!==ceph)return false;
     if(q){
-      const hay=[f.first_name,f.last_name,f.sph_unit,f.rank,f.employer,f.email]
+      const hay=[f.first_name,f.last_name,f.sph_unit,f.rank,f.employer,f.email,f.secondary_email]
         .filter(Boolean).join(' ').toLowerCase();
       if(!hay.includes(q))return false;
     }
@@ -566,7 +604,7 @@ function renderDir(){
   $('dir-tb').innerHTML=rows.map(f=>{
     const n=(TEACHING[f.id]||[]).length;
     return `<tr class="clickable" data-id="${esc(f.id)}">
-      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${(WEBPROF[f.id]&&WEBPROF[f.id].is_published)?` <span class="pubdot" title="Published profile">●</span>`:''}${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}</td>
+      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${cephSup(f)}${(WEBPROF[f.id]&&WEBPROF[f.id].is_published)?` <span class="pubdot" title="Published profile">●</span>`:''}${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}</td>
       <td>${esc(f.sph_unit||'')||'<span class="muted">—</span>'}</td>
       <td>${esc(f.rank||'')||'<span class="muted">—</span>'}</td>
       <td>${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')||'<span class="muted">—</span>'}</td>
@@ -613,6 +651,19 @@ const CEPH_LABEL={
   primary_instructional:'CEPH Primary Instructional Faculty',
   non_primary_instructional:'CEPH Non-Primary Instructional Faculty'
 };
+const CEPH_SUP={primary_instructional:'1',non_primary_instructional:'2'};
+/* Signed-in tiers hold the whole web-profile row and see edits without a
+   refetch; anon only ever has the narrow CEPH view. Prefer the former, fall
+   back to the latter, so one helper serves every tier. */
+function cephOf(f){
+  const wp=WEBPROF[f.id];
+  const v=(wp&&wp.ceph_flag)||CEPH[f.id]||'none';
+  return v==='none'?'':v;
+}
+function cephSup(f){
+  const v=cephOf(f);
+  return CEPH_SUP[v]?`<sup class="cephsup" title="${esc(CEPH_LABEL[v]||'')}">${CEPH_SUP[v]}</sup>`:'';
+}
 // Defaults render when a profile hasn't overridden them, so a page resembles the
 // website before anyone has touched a single profile field.
 const defaultSubcat=f=>UNIT_TO_SUBCAT[String(f.sph_unit||'').trim()]||'';
@@ -621,22 +672,47 @@ const defaultCat=f=>N(f.rank)||'';   // per spec: category defaults from Rank
 // Minimal, safe Markdown → HTML for the biography. Escapes first, then applies a
 // deliberately small subset — paragraphs, line breaks, bold, italic, [links](url),
 // and dash/star bullets. No raw HTML passes through.
-function mdToHtml(src){
-  const e=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const inl=s=>e(s)
+/* Inline markdown, shared by the biography and by research / award items.
+   Escapes first; nothing but this small subset ever becomes markup.
+
+   Order matters. [text](url) is pulled out to a placeholder BEFORE bare-URL
+   autolinking runs, otherwise step 3 would find the href inside the anchor
+   step 1 just produced and link it a second time. */
+function inlineMd(src){
+  const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const held=[];
+  let s=String(src||'').replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,(m,t,u)=>{
+    held.push(`<a href="${e(u).replace(/"/g,'&quot;')}" target="_blank" rel="noopener">${e(t)}</a>`);
+    return '\u0000'+(held.length-1)+'\u0000';
+  });
+  s=e(s)
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
     .replace(/(^|[^*])\*(?!\s)([^*]+?)\*/g,'$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // A pasted bare URL should link too — admins shouldn't need syntax.
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+             (m,pre,u)=>`${pre}<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  return s.replace(/\u0000(\d+)\u0000/g,(m,i)=>held[+i]);
+}
+function mdToHtml(src){
   return String(src||'').replace(/\r\n/g,'\n').split(/\n{2,}/).map(b=>{
     const ls=b.split('\n');
     if(ls.length&&ls.every(l=>/^\s*[-*]\s+/.test(l)))
-      return '<ul>'+ls.map(l=>`<li>${inl(l.replace(/^\s*[-*]\s+/,''))}</li>`).join('')+'</ul>';
-    return '<p>'+ls.map(inl).join('<br>')+'</p>';
+      return '<ul>'+ls.map(l=>`<li>${inlineMd(l.replace(/^\s*[-*]\s+/,''))}</li>`).join('')+'</ul>';
+    return '<p>'+ls.map(inlineMd).join('<br>')+'</p>';
   }).join('');
+}
+/* Shared renderer for the two curated lists. The publish flag is captured for
+   the future website feed, so an unpublished item still shows in-app — just
+   marked, and only to someone who could act on it. */
+function itemListHTML(cls,rows){
+  return `<ul class="${cls}">`+rows.map(r=>
+    `<li>${inlineMd(r.item)}${(TIER!=='public'&&r.is_published===false)?'<span class="ptag">unpublished</span>':''}</li>`
+  ).join('')+`</ul>`;
 }
 
 function renderProf(id){
   const f=FAC.find(x=>String(x.id)===String(id));
+  lastViewedId=id;   // so ← Back lands on this row instead of the top
   if(!f){
     $('prof-body').innerHTML=`<button class="pback" id="pb">← Back to directory</button>
       <div class="card"><div class="gate">That faculty member isn’t in the directory.</div></div>`;
@@ -653,7 +729,7 @@ function renderProf(id){
   const roleLine=[pcat,psub].filter(Boolean).join(' · ')
                  ||[f.rank,f.sph_unit].filter(Boolean).join(' · ')||'—';
   const photo=wp&&N(wp.photo_url);
-  const cephTxt=wp&&wp.ceph_flag&&wp.ceph_flag!=='none'?CEPH_LABEL[wp.ceph_flag]:'';
+  const cephTxt=CEPH_LABEL[cephOf(f)]||'';   // anon included — see cephOf()
   const pubPill=TIER!=='public'
     ?(wp&&wp.is_published?`<span class="pill pub">Published</span>`
                          :`<span class="pill draft">Draft</span>`)
@@ -685,7 +761,7 @@ function renderProf(id){
              :`<div class="gate">No biography yet.</div>`)+`</div>`;
 
     const eds=EDU[f.id]||[];
-    h+=`<div class="card"><h3>Education</h3>`+
+    h+=`<div class="card"><h3>Education, Fellowships, and Residencies</h3>`+
        (eds.length?`<div class="edulist">`+eds.map(ed=>{
           const main=[ed.degree,ed.institution,ed.field].map(N).filter(Boolean).join(', ');
           const yr=N(ed.year_text);
@@ -695,9 +771,14 @@ function renderProf(id){
        :`<div class="gate">No education entries yet.</div>`)+`</div>`;
 
     const rs=RES[f.id]||[];
-    h+=`<div class="card"><h3>Research Interests</h3>`+
-       (rs.length?`<ul class="reslist">`+rs.map(r=>`<li>${esc(r.item)}</li>`).join('')+`</ul>`
-       :`<div class="gate">No research interests yet.</div>`)+`</div>`;
+    h+=`<div class="card"><h3>Research and Publications</h3>`+
+       (rs.length?itemListHTML('reslist',rs)
+       :`<div class="gate">No research or publications yet.</div>`)+`</div>`;
+
+    const aw=AWD[f.id]||[];
+    h+=`<div class="card"><h3>Awards and Honors</h3>`+
+       (aw.length?itemListHTML('awdlist',aw)
+       :`<div class="gate">No awards or honors yet.</div>`)+`</div>`;
   }
 
   /* contact + appointment — viewer tier and up */
@@ -707,6 +788,7 @@ function renderProf(id){
   }else{
     h+=`<div class="card"><h3>Contact &amp; Appointment</h3><div class="grid">
       ${fld('Email',f.email,v=>`<a href="mailto:${esc(v)}" style="color:var(--teal)">${esc(v)}</a>`)}
+      ${fld('Secondary Email',f.secondary_email,v=>`<a href="mailto:${esc(v)}" style="color:var(--teal)">${esc(v)}</a>`)}
       ${fld('SPH Association',f.sph_association)}
       ${fld('Appointment Type',f.appointment_type)}
       ${fld('Employer',f.employer)}
@@ -815,9 +897,31 @@ function route(id){
   const prof=!!id;
   $('v-dir').classList.toggle('active',!prof);
   $('v-prof').classList.toggle('active',prof);
-  if(prof)renderProf(id); else renderDir();
+  if(prof){
+    renderProf(id);
+    toTop();
+  }else{
+    renderDir();
+    restoreRow();
+  }
+}
+function toTop(){
   window.scrollTo(0,0);
   const m=document.querySelector('main');if(m)m.scrollTop=0;
+  const tw=document.querySelector('.tw');if(tw)tw.scrollTop=0;
+}
+/* Anchor on the row itself rather than a saved pixel offset: filters or the
+   underlying data may have changed while the profile was open, so a remembered
+   scrollTop can point somewhere entirely different. If the person is no longer
+   in the filtered set, fall back to the top honestly. */
+function restoreRow(){
+  const id=lastViewedId; lastViewedId=null;
+  if(!id)return toTop();
+  const tr=$('dir-tb').querySelector(`tr[data-id="${CSS.escape(String(id))}"]`);
+  if(!tr)return toTop();
+  tr.scrollIntoView({block:'center'});
+  tr.classList.add('rowflash');
+  setTimeout(()=>tr.classList.remove('rowflash'),1400);
 }
 window.addEventListener('popstate',()=>{
   route(new URL(window.location).searchParams.get('id'));
@@ -825,7 +929,8 @@ window.addEventListener('popstate',()=>{
 
 /* ─── EDIT MODAL ───────────────────────────────────────────── */
 const FM={ // element id → faculty column
-  'fm-last':'last_name','fm-first':'first_name','fm-email':'email','fm-unit':'sph_unit',
+  'fm-last':'last_name','fm-first':'first_name','fm-email':'email',
+  'fm-email2':'secondary_email','fm-unit':'sph_unit',
   'fm-rank':'rank','fm-appt':'appointment_type','fm-assoc':'sph_association',
   'fm-employer':'employer','fm-org':'ohsu_employment_org','fm-role':'role_when_active',
   'fm-fte':'fte_in_sph','fm-start':'start_date','fm-exp':'appt_expiration_date',
@@ -974,11 +1079,18 @@ function eduRowHTML(e){e=e||{};
     `<input class="ry" placeholder="Year" value="${esc(e.year_text||'')}">`+
     `<button type="button" class="rrm" title="Remove">×</button></div>`;
 }
-function resRowHTML(r){r=r||{};
-  return `<div class="repeat-row res-row">`+
-    `<input class="rt" placeholder="Research interest" value="${esc(r.item||'')}">`+
+/* Research and awards share a shape: one free-text item (inline markdown and
+   bare URLs both link) plus a publish flag. A brand-new blank row starts
+   checked — the admin is adding it deliberately; opting out is the exception. */
+function itemRowHTML(cls,ph,r){r=r||{};
+  return `<div class="repeat-row ${cls}">`+
+    `<input class="rt" placeholder="${esc(ph)}" value="${esc(r.item||'')}">`+
+    `<label class="pubchk" title="Include this item on the public website profile">`+
+      `<input type="checkbox" class="rp"${r.is_published===false?'':' checked'}> Publish</label>`+
     `<button type="button" class="rrm" title="Remove">×</button></div>`;
 }
+const resRowHTML=r=>itemRowHTML('res-row','Research interest or publication',r);
+const awdRowHTML=a=>itemRowHTML('awd-row','Award or honor',a);
 function openPM(fid){
   pmId=fid;
   const f=FAC.find(x=>String(x.id)===String(fid));
@@ -991,9 +1103,10 @@ function openPM(fid){
   setv('pm-photo',(wp&&wp.photo_url)||'');
   setv('pm-bio',(wp&&wp.biography_md)||'');
   $('pm-pub').checked=!!(wp&&wp.is_published);
-  const eds=EDU[fid]||[], rss=RES[fid]||[];
-  $('pm-edu').innerHTML=(eds.length?eds:[{}]).map(eduRowHTML).join('');
-  $('pm-res').innerHTML=(rss.length?rss:[{}]).map(resRowHTML).join('');
+  const eds=EDU[fid]||[], rss=RES[fid]||[], aws=AWD[fid]||[];
+  $('pm-edu').innerHTML=(eds.length?eds:[{}]).map(e=>eduRowHTML(e)).join('');
+  $('pm-res').innerHTML=(rss.length?rss:[{}]).map(r=>resRowHTML(r)).join('');
+  $('pm-awd').innerHTML=(aws.length?aws:[{}]).map(a=>awdRowHTML(a)).join('');
   openM('mo-prof');
 }
 function readRepeat(cid,fn){return [...$(cid).querySelectorAll('.repeat-row')].map(fn);}
@@ -1014,7 +1127,8 @@ function profileSnap(fid){
     ceph_flag:wp.ceph_flag??'none', photo_url:wp.photo_url??null,
     is_published:!!wp.is_published, biography_md:wp.biography_md??null,
     education:(EDU[fid]||[]).map(e=>({degree:e.degree,institution:e.institution,field:e.field,year_text:e.year_text})),
-    research:(RES[fid]||[]).map(r=>r.item)
+    research:(RES[fid]||[]).map(r=>r.item+(r.is_published===false?' [unpublished]':'')),
+    awards:(AWD[fid]||[]).map(a=>a.item+(a.is_published===false?' [unpublished]':''))
   };
 }
 async function savePM(){
@@ -1041,8 +1155,12 @@ async function savePM(){
     year_text:N(r.querySelector('.ry').value)
   })).filter(e=>e.degree||e.institution||e.field||e.year_text);
   if(!await replaceChildRows('faculty_education',fid,eduRows))return;
-  const resRows=readRepeat('pm-res',r=>({item:N(r.querySelector('.rt').value)})).filter(r=>r.item);
+  const rdItem=r=>({item:N(r.querySelector('.rt').value),
+                    is_published:r.querySelector('.rp').checked});
+  const resRows=readRepeat('pm-res',rdItem).filter(r=>r.item);
   if(!await replaceChildRows('faculty_research',fid,resRows))return;
+  const awdRows=readRepeat('pm-awd',rdItem).filter(r=>r.item);
+  if(!await replaceChildRows('faculty_award',fid,awdRows))return;
   closeM('mo-prof');
   await reload();
   const after=profileSnap(fid);
@@ -1150,7 +1268,7 @@ async function reload(){
 
 /* ─── WIRING ───────────────────────────────────────────────── */
 function wire(){
-  ['f-q','f-cat','f-unit','f-pub','f-teach','f-inact'].forEach(id=>{
+  ['f-q','f-cat','f-unit','f-pub','f-ceph','f-teach','f-inact'].forEach(id=>{
     const e=$(id);if(!e)return;
     e.addEventListener(id==='f-q'?'input':'change',renderDir);
   });
@@ -1165,7 +1283,8 @@ function wire(){
   $('btn-save-prof').onclick=savePM;
   $('pm-edu-add').onclick=()=>$('pm-edu').insertAdjacentHTML('beforeend',eduRowHTML());
   $('pm-res-add').onclick=()=>$('pm-res').insertAdjacentHTML('beforeend',resRowHTML());
-  ['pm-edu','pm-res'].forEach(cid=>$(cid).addEventListener('click',e=>{
+  $('pm-awd-add').onclick=()=>$('pm-awd').insertAdjacentHTML('beforeend',awdRowHTML());
+  ['pm-edu','pm-res','pm-awd'].forEach(cid=>$(cid).addEventListener('click',e=>{
     const rm=e.target.closest('.rrm'); if(rm)rm.closest('.repeat-row').remove();
   }));
   $('cfm-ok').onclick=()=>{const cb=cfmCb;closeM('mo-cfm');if(cb)cb();};
