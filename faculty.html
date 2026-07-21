@@ -128,12 +128,17 @@ tbody tr.clickable{cursor:pointer}
 .edulist .edurow{display:flex;gap:12px;align-items:baseline;padding:9px 16px;border-top:1px solid #F1F4F8;font-size:13px}
 .edulist .edurow:first-child{border-top:none}
 .edumain{flex:1}.eduyr{color:var(--dgray);font-size:12px;white-space:nowrap}
-.reslist{margin:0;padding:10px 16px 12px 34px;font-size:13px;line-height:1.6}
-.reslist li{margin-bottom:4px}
+.reslist,.awdlist{margin:0;padding:10px 16px 12px 34px;font-size:13px;line-height:1.6}
+.reslist li,.awdlist li{margin-bottom:4px}
 /* profile edit modal: repeatable rows + roster publish marker */
 .hint{font-size:11px;color:var(--dgray);margin-top:4px}
-.sect .hintr{float:right;font-weight:400;text-transform:none;letter-spacing:0;color:#8296AE;font-size:10px}
-.sect .addrow{float:right;font:inherit;font-size:11px;font-weight:600;color:var(--teal);background:none;border:none;cursor:pointer;padding:0}
+.sect .hintr{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;color:#8296AE;font-size:10px}
+.sect .addrow{margin-left:auto;font:inherit;font-size:11px;font-weight:600;color:var(--teal);background:none;border:none;cursor:pointer;padding:0}
+/* When both are present the hint claims the free space and the button sits
+   flush right beside it, rather than each grabbing half. */
+.sect .hintr+.addrow{margin-left:0}
+/* Publish-column caption, above the Research / Awards repeat blocks. */
+.pubhint{font-size:11px;color:var(--dgray);margin:-4px 0 2px}
 .repeat{display:flex;flex-direction:column;gap:8px}
 .repeat-row{display:flex;gap:6px;align-items:center}
 .repeat-row input{flex:1;min-width:0}
@@ -144,7 +149,11 @@ tbody tr.clickable{cursor:pointer}
 /* CEPH designation. Required by accreditation to appear on public-facing
    profiles, so it renders at every tier — including anon. */
 .cephsup{color:var(--teal);font-weight:700;font-size:10px;vertical-align:super;margin-left:1px;cursor:help}
-.ceph-legend{font-size:11px;color:var(--dgray);white-space:nowrap;margin-left:auto}
+/* Pronouns sit on the faculty record and render at every tier, profile only. */
+.pron{font-size:14px;font-weight:400;color:var(--dgray);margin-left:7px;white-space:nowrap}
+/* flex-basis:100% forces a wrap, so the legend never shares a line with the
+   filter controls — it was crowding out on narrow / portrait displays. */
+.ceph-legend{font-size:11px;color:var(--dgray);white-space:nowrap;flex-basis:100%}
 .ceph-legend sup{color:var(--teal);font-weight:700}
 /* Per-item publish state. Unpublished items still render in-app — the flag
    only decides what the future website feed carries. */
@@ -175,7 +184,7 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
 .f label{display:block;font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:3px}
 .f input,.f select,.f textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--mgray);border-radius:5px;font-family:inherit;background:white;color:var(--text)}
 .f textarea{min-height:64px;resize:vertical}
-.sect{grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:1px solid var(--mgray);padding-bottom:5px;margin-top:6px}
+.sect{grid-column:1/-1;display:flex;align-items:baseline;gap:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:1px solid var(--mgray);padding-bottom:5px;margin-top:6px}
 .catbox{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px}
 .catbox label{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;color:var(--text);margin:0}
 .catbox input{width:auto}
@@ -224,6 +233,7 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
         <label id="f-inact-wrap" style="font-size:12px;color:var(--dgray);display:none;align-items:center;gap:5px">
           <input type="checkbox" id="f-inact"> Show inactive
         </label>
+        <button class="btn btn-s" id="btn-clear">Clear filters</button>
         <button class="btn btn-p btn-s admin-only" id="btn-add">+ Add Faculty</button>
         <button class="btn btn-s admin-only" id="btn-log">📄 Change Log</button>
         <span class="ceph-legend"><sup>1</sup> CEPH Primary &middot; <sup>2</sup> CEPH Non-Primary</span>
@@ -256,6 +266,7 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
         <div><label>Email</label><input id="fm-email" type="email"></div>
         <div><label>Secondary Email</label><input id="fm-email2" type="email"></div>
         <div><label>SPH Unit</label><input id="fm-unit" placeholder="EPI, PHE (CH/HP), HSMP…"></div>
+        <div><label>Pronouns</label><input id="fm-pron" placeholder="e.g. she/her, they/them"></div>
 
         <div class="sect">Categories</div>
         <div class="catbox" id="fm-cats"></div>
@@ -333,9 +344,11 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
         <div class="full repeat" id="pm-edu"></div>
 
         <div class="sect">Research and Publications <span class="hintr">Links: [text](https://…)</span><button type="button" class="addrow" id="pm-res-add">+ Add</button></div>
+        <div class="full pubhint">Checked = publish this item to the public website profile.</div>
         <div class="full repeat" id="pm-res"></div>
 
         <div class="sect">Awards and Honors <span class="hintr">Links: [text](https://…)</span><button type="button" class="addrow" id="pm-awd-add">+ Add</button></div>
+        <div class="full pubhint">Checked = publish this item to the public website profile.</div>
         <div class="full repeat" id="pm-awd"></div>
       </div>
     </div>
@@ -716,7 +729,7 @@ function renderProf(id){
   if(!f){
     $('prof-body').innerHTML=`<button class="pback" id="pb">← Back to directory</button>
       <div class="card"><div class="gate">That faculty member isn’t in the directory.</div></div>`;
-    $('pb').onclick=()=>go(null);
+    $('pb').onclick=goBack;
     return;
   }
   let h=`<button class="pback" id="pb">← Back to directory</button>`;
@@ -740,7 +753,7 @@ function renderProf(id){
       ${photo?`<img class="pphoto" id="prof-photo" src="${esc(wp.photo_url)}" alt="${esc(full(f))}">`:''}
     </div>
     <div>
-      <h2>${esc(full(f))}</h2>
+      <h2>${esc(full(f))}${N(f.pronouns)?`<span class="pron">(${esc(f.pronouns)})</span>`:''}</h2>
       <div class="prole">${esc(roleLine)}</div>
       <div class="pcats">${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div>
       ${roleBadges(f)}
@@ -836,7 +849,7 @@ function renderProf(id){
   $('prof-body').innerHTML=h;
   const ph=$('prof-photo');
   if(ph)ph.addEventListener('error',()=>ph.classList.add('broken'));  // fall back to initials
-  $('pb').onclick=()=>go(null);
+  $('pb').onclick=goBack;
   const be=$('btn-edit');if(be)be.onclick=()=>openFM(f.id);
   const bp=$('btn-edit-prof');if(bp)bp.onclick=()=>openPM(f.id);
 }
@@ -893,6 +906,22 @@ function go(id,push=true){
   if(push)history.pushState({id},'',u);
   route(id);
 }
+/* Replace the current entry rather than stacking a new one — used after a
+   delete, where the profile URL we came from no longer resolves. */
+function goRepl(id){
+  const u=new URL(window.location);
+  if(id)u.searchParams.set('id',id); else u.searchParams.delete('id');
+  history.replaceState({id:id||null},'',u);
+  route(id);
+}
+/* If history.state carries an id, this entry was pushed by go() — so the
+   previous entry IS the directory and a genuine pop is correct. Arriving by
+   deep link from index.html leaves state null; there is no directory entry
+   behind us then, so fall through to a push. */
+function goBack(){
+  if(history.state&&history.state.id){history.back();return;}
+  go(null);
+}
 function route(id){
   const prof=!!id;
   $('v-dir').classList.toggle('active',!prof);
@@ -930,7 +959,7 @@ window.addEventListener('popstate',()=>{
 /* ─── EDIT MODAL ───────────────────────────────────────────── */
 const FM={ // element id → faculty column
   'fm-last':'last_name','fm-first':'first_name','fm-email':'email',
-  'fm-email2':'secondary_email','fm-unit':'sph_unit',
+  'fm-email2':'secondary_email','fm-unit':'sph_unit','fm-pron':'pronouns',
   'fm-rank':'rank','fm-appt':'appointment_type','fm-assoc':'sph_association',
   'fm-employer':'employer','fm-org':'ohsu_employment_org','fm-role':'role_when_active',
   'fm-fte':'fte_in_sph','fm-start':'start_date','fm-exp':'appt_expiration_date',
@@ -1066,7 +1095,7 @@ async function delFac(){
       await logChange('delete',eid,before&&before.name,before,null);
       closeM('mo-fac');
       await reload();
-      go(null);
+      goRepl(null);   // deleted profile must not stay reachable via Back
     },
     'This person has no offerings and is not on the scheduling roster, so deletion is safe. The audit log will retain a record.');
 }
@@ -1084,9 +1113,9 @@ function eduRowHTML(e){e=e||{};
    checked — the admin is adding it deliberately; opting out is the exception. */
 function itemRowHTML(cls,ph,r){r=r||{};
   return `<div class="repeat-row ${cls}">`+
-    `<input class="rt" placeholder="${esc(ph)}" value="${esc(r.item||'')}">`+
     `<label class="pubchk" title="Include this item on the public website profile">`+
-      `<input type="checkbox" class="rp"${r.is_published===false?'':' checked'}> Publish</label>`+
+      `<input type="checkbox" class="rp"${r.is_published===false?'':' checked'}></label>`+
+    `<input class="rt" placeholder="${esc(ph)}" value="${esc(r.item||'')}">`+
     `<button type="button" class="rrm" title="Remove">×</button></div>`;
 }
 const resRowHTML=r=>itemRowHTML('res-row','Research interest or publication',r);
@@ -1276,6 +1305,13 @@ function wire(){
     const tr=e.target.closest('tr[data-id]');
     if(tr)go(tr.dataset.id);
   });
+  /* Resets every control in the toolbar to its default, including the two
+     checkboxes — 'Show inactive' returns to hidden, matching a fresh load. */
+  $('btn-clear').onclick=()=>{
+    ['f-q','f-cat','f-unit','f-pub','f-ceph'].forEach(id=>{const e=$(id);if(e)e.value='';});
+    ['f-teach','f-inact'].forEach(id=>{const e=$(id);if(e)e.checked=false;});
+    renderDir();
+  };
   $('btn-add').onclick=()=>openFM(null);
   $('btn-log').onclick=showLog;
   $('btn-save-fac').onclick=saveFac;
