@@ -262,6 +262,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <div class="view" id="view-catalog">
       <div class="toolbar">
         <select id="cc-pfx"><option value="">All Programs</option></select>
+        <select id="cc-lvl"><option value="">All Levels</option><option value="GR">GR — Graduate (incl. B)</option><option value="UG">UG — Undergraduate (incl. B)</option><option value="B">B — Both only</option></select>
+        <select id="cc-cr"><option value="">All Credits</option><option value="ranged">Ranged only (e.g. 1-4)</option><option value="fixed">Fixed only</option></select>
         <input type="search" id="cc-q" placeholder="Search…" style="width:200px">
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-crs" style="display:none">+ Add Course</button>
@@ -419,7 +421,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>Permission Required</label><select id="cm-perm"><option value="No">No</option><option value="Yes">Yes</option></select></div>
       <div><label>GR / UG / B</label><select id="cm-grugb"><option>GR</option><option>UG</option><option>B</option></select></div>
       <div><label>FTE Exempt</label><select id="cm-fte"><option value="No">No</option><option value="Yes">Yes</option></select></div>
-      <div><label>Max Cap</label><input id="cm-cap" type="number"></div>
+      <div><label>Max Cap</label><input id="cm-cap" type="number" placeholder="10"><div class="fhint">Defaults to 10 if left blank.</div></div>
       <div id="cm-terms" class="s2"></div>
     </div></div>
     <div class="mft">
@@ -1557,10 +1559,30 @@ function renderCht(){
 }
 
 /* ─── CATALOG ───────────────────────────────────────────────── */
+/* The level filter is INCLUSIVE, matching the Schedule tab's f-level: a B
+   course is open to both populations, so it answers to GR and to UG. The
+   explicit 'B' option is the one exact match, for isolating dual-listed
+   courses. Consequence: GR count + UG count > total when any B exists. */
+/* A credit value is 'ranged' when it spans a low and a high — 1-4, 2–6.
+   Hyphen, en dash and em dash all count; the field is free text and the
+   workbook import was not consistent about which one it used. */
+const isRangedCr=v=>/[-\u2010-\u2015]/.test(String(v??''));
 function renderCat(){
-  const pfx=val('cc-pfx'),q=val('cc-q').toLowerCase();
+  const pfx=val('cc-pfx'),q=val('cc-q').toLowerCase(),
+        lvl=val('cc-lvl'),crf=val('cc-cr');
   let courses=DB.courses.filter(c=>{
     if(pfx&&c.prefix!==pfx)return false;
+    if(lvl){
+      const g=c.grugb||'';
+      if(lvl==='GR'&&!(g==='GR'||g==='B'))return false;
+      if(lvl==='UG'&&!(g==='UG'||g==='B'))return false;
+      if(lvl==='B' && g!=='B')return false;   // exact — isolates dual-listed courses
+    }
+    if(crf){
+      const r=isRangedCr(c.credits);
+      if(crf==='ranged'&&!r)return false;
+      if(crf==='fixed'&&r)return false;
+    }
     if(q&&!(c.fullName+' '+c.title).toLowerCase().includes(q))return false;
     return true;
   }).sort((a,b)=>(a.prefix.localeCompare(b.prefix))||a.number.localeCompare(b.number));
@@ -1914,7 +1936,8 @@ function openCM(id){
     
     TERMS.forEach(t=>setc('cm-t-'+t,DB.offerings.some(o=>o.courseId===id&&o.term===t)));
   }else{
-    ['cm-num','cm-num2','cm-cr','cm-ttl','cm-cap'].forEach(f=>setv(f,''));
+    ['cm-num','cm-num2','cm-cr','cm-ttl'].forEach(f=>setv(f,''));
+    setv('cm-cap','10');            // new courses start at the house default
     TERMS.forEach(t=>setc('cm-t-'+t,false));
   }
   openM('mo-crs');
@@ -1944,7 +1967,8 @@ async function saveCrs(){
     while(DB.courses.some(c=>c.id===id)){id=base+'_'+letters[k++];}
   }
   const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
-    credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),maxCap:val('cm-cap')};
+    credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),
+    maxCap:val('cm-cap').trim()||'10'};   // blank → 10, including on edit of an older course
   const row=crsRow(data);
 
   // Persist the course first — its UUID is needed for any new term offerings.
@@ -2436,6 +2460,8 @@ function wireEvents(){
   $('btn-exp-cht').addEventListener('click',expCht);
   // Catalog
   $('cc-pfx').addEventListener('change',renderCat);
+  $('cc-lvl').addEventListener('change',renderCat);
+  $('cc-cr').addEventListener('change',renderCat);
   $('cc-q').addEventListener('input',renderCat);
   $('btn-add-crs').addEventListener('click',()=>openCM(null));
   $('cat-tb').addEventListener('click',e=>{
