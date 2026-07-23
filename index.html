@@ -2521,21 +2521,31 @@ async function refreshAdmin(){
   if(!sb){signedIn=false;isPD=false;applyAuthVis();disableAdmin();return;}
   const {data:{session}}=await sb.auth.getSession();
   if(!session){signedIn=false;isPD=false;applyAuthVis();disableAdmin();updateAuthBar(null);currentUserEmail=null;return;}
-  signedIn=true;applyAuthVis();
   currentUserEmail=session.user?.email||null;
-  // What level am I? Self-read on app_access (RLS: own rows only).
-  let admin=false,pd=false;
+  // What level am I? Self-read on app_access (RLS: own rows only). The row's
+  // EXISTENCE is now what grants `signedIn`, not the session — a person who
+  // authenticates without being provisioned sees exactly the public schedule.
+  // Unlike the faculty app this gate is cosmetic: courses, offerings and
+  // instructor_meta are anon-readable by design, so there is no confidential
+  // payload behind it, only internal machinery the public has no use for.
+  let admin=false,pd=false,provisioned=false;
   try{
     const {data,error}=await sb.from('app_access')
       .select('level').eq('app','scheduling').maybeSingle();
     if(!error && data){
+      provisioned=true;
       if(data.level==='admin')admin=true;
       else if(data.level==='pd')pd=true;
     }
   }catch(e){}
+  signedIn=provisioned;applyAuthVis();
   isPD=pd;
   if(admin||pd)enableAdmin(pd&&!admin); else disableAdmin();
   updateAuthBar(session.user, admin||pd);
+  if(!provisioned)setSS('Signed in · no scheduling access yet — contact the SPH administrator');
+  // signedIn drives the notes tooltips and the gated tabs, so repaint. Guarded
+  // because onAuthStateChange can fire before the first loadData() completes.
+  if(DB&&DB.offerings)renderAll();
 }
 async function signInEmail(email){
   if(!email){setSS('⚠ Enter an email');return;}

@@ -464,16 +464,24 @@ async function sbSave(q,okMsg){
 }
 
 /* ─── DATA LOADING ─────────────────────────────────────────── */
+/* A session is authentication, not authorisation. Tier comes from app_access
+   and nowhere else: no row means the public tier, however the person signed in.
+   `unprovisioned` is remembered separately so the status line can distinguish
+   "signed in, awaiting access" from "browsing anonymously" — otherwise signing
+   in appears to do nothing at all. */
+let unprovisioned=false;
 async function resolveTier(){
   const {data:{session}}=await sb.auth.getSession();
+  unprovisioned=false;
   if(!session){TIER='public';currentUserEmail=null;return;}
   currentUserEmail=session.user?.email||null;
-  TIER='viewer';
+  TIER='public';
   try{
     const {data,error}=await sb.from('app_access')
       .select('level').eq('app','faculty').maybeSingle();
-    if(!error&&data&&data.level==='admin')TIER='admin';
-  }catch(e){}
+    if(!error&&data)TIER=(data.level==='admin')?'admin':'viewer';
+    else unprovisioned=true;
+  }catch(e){unprovisioned=true;}
 }
 
 async function loadData(){
@@ -1374,7 +1382,10 @@ function wire(){
   $('ls').style.display='none';
   $('app').style.display='flex';
   route(new URL(window.location).searchParams.get('id'));
-  setSS(TIER==='admin'?'Ready · admin':(TIER==='viewer'?'Ready · signed in':'Ready · public view'));
+  setSS(TIER==='admin'?'Ready · admin'
+       :TIER==='viewer'?'Ready · signed in'
+       :unprovisioned?'Signed in · no faculty access yet — contact the SPH administrator'
+       :'Ready · public view');
 })();
 </script>
 </body>
