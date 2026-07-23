@@ -792,6 +792,15 @@ async function loadData(){
 }
 
 const setSS=msg=>{const e=$('save-status');if(e)e.textContent=msg;};
+/* Signed in but holding no scheduling grant. Phrased as what the person HAS,
+   not as something absent: the same sentence is true whether they are awaiting
+   provisioning or were deliberately given public access only. */
+const ACCESS_MSG='Public view only · for greater access contact whitetim@pdx.edu';
+function setAccessStatus(){
+  if(isAdmin){setSS('Admin mode');return;}
+  if(signedIn){setSS('Read-only');return;}
+  setSS(currentUserEmail?ACCESS_MSG:'Read-only');
+}
 function setLastSaved(date){
   const el=$('last-saved');if(!el)return;
   const now=new Date();
@@ -2528,27 +2537,21 @@ async function refreshAdmin(){
   // Unlike the faculty app this gate is cosmetic: courses, offerings and
   // instructor_meta are anon-readable by design, so there is no confidential
   // payload behind it, only internal machinery the public has no use for.
-  let admin=false,pd=false,provisioned=false,anyAccess=false;
+  let admin=false,pd=false,provisioned=false;
   try{
-    // All rows, not just scheduling: a faculty-only admin is public HERE by
-    // design and should not be prompted to ask for access they were never
-    // meant to have. Only someone with no grants anywhere is unprovisioned.
-    const {data,error}=await sb.from('app_access').select('app,level');
+    const {data,error}=await sb.from('app_access')
+      .select('level').eq('app','scheduling').maybeSingle();
     if(!error && data){
-      anyAccess=data.length>0;
-      const sch=data.find(r=>r.app==='scheduling');
-      if(sch){
-        provisioned=true;
-        if(sch.level==='admin')admin=true;
-        else if(sch.level==='pd')pd=true;
-      }
+      provisioned=true;
+      if(data.level==='admin')admin=true;
+      else if(data.level==='pd')pd=true;
     }
   }catch(e){}
   signedIn=provisioned;applyAuthVis();
   isPD=pd;
   if(admin||pd)enableAdmin(pd&&!admin); else disableAdmin();
   updateAuthBar(session.user, admin||pd);
-  if(!anyAccess)setSS('Signed in · no scheduling access yet — contact the SPH administrator');
+  setAccessStatus();
   // signedIn drives the notes tooltips and the gated tabs, so repaint. Guarded
   // because onAuthStateChange can fire before the first loadData() completes.
   if(DB&&DB.offerings)renderAll();
@@ -2634,7 +2637,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL)||SUPABASE_ANON_KEY.startsWith('YOUR-')){
     setSS('⚠ Set SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file');
   }else{
-    setSS(isAdmin?'Admin mode':'Read-only');
+    setAccessStatus();
   }
   handleOfferingDeepLink();   // ?offering=<uuid> arriving from a faculty profile
 });

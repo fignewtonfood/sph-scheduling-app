@@ -466,30 +466,19 @@ async function sbSave(q,okMsg){
 /* ─── DATA LOADING ─────────────────────────────────────────── */
 /* A session is authentication, not authorisation. Tier comes from app_access
    and nowhere else: no row means the public tier, however the person signed in.
-   `unprovisioned` is remembered separately so the status line can distinguish
-   "signed in, awaiting access" from "browsing anonymously" — otherwise signing
-   in appears to do nothing at all. */
-let unprovisioned=false;
+   No need to distinguish "deliberately public here" from "not provisioned
+   anywhere" — the status line states what the person HAS rather than what they
+   lack, which is true of both. */
 async function resolveTier(){
   const {data:{session}}=await sb.auth.getSession();
-  unprovisioned=false;
   if(!session){TIER='public';currentUserEmail=null;return;}
   currentUserEmail=session.user?.email||null;
   TIER='public';
   try{
-    // Every row, not just the faculty one, because "no faculty grant" is
-    // ambiguous on its own. Someone holding a scheduling grant and no faculty
-    // grant is public HERE ON PURPOSE — typically a PD who followed a
-    // cross-link from the schedule. Someone holding no grants at all is
-    // genuinely waiting on provisioning. Only the second should be told to
-    // contact anyone.
-    const {data,error}=await sb.from('app_access').select('app,level');
-    if(error)throw error;
-    const rows=data||[];
-    const fac=rows.find(r=>r.app==='faculty');
-    if(fac)TIER=(fac.level==='admin')?'admin':'viewer';
-    else unprovisioned=rows.length===0;
-  }catch(e){unprovisioned=true;}
+    const {data,error}=await sb.from('app_access')
+      .select('level').eq('app','faculty').maybeSingle();
+    if(!error&&data)TIER=(data.level==='admin')?'admin':'viewer';
+  }catch(e){}
 }
 
 async function loadData(){
@@ -1392,8 +1381,7 @@ function wire(){
   route(new URL(window.location).searchParams.get('id'));
   setSS(TIER==='admin'?'Ready · admin'
        :TIER==='viewer'?'Ready · signed in'
-       :unprovisioned?'Signed in · no faculty access yet — contact the SPH administrator'
-       :currentUserEmail?'Signed in · public view'
+       :currentUserEmail?'Public view only · for greater access contact whitetim@pdx.edu'
        :'Ready · public view');
 })();
 </script>
