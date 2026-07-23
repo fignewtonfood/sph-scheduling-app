@@ -226,7 +226,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
           <thead><tr>
             <th data-col="term">Term</th><th data-col="prefix">Prefix</th><th data-col="fullName">Course</th>
             <th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
-            <th data-col="modality">Modality</th><th style="text-align:center" title="Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
+            <th data-col="modality">Modality</th><th style="text-align:center" title="Permission required to register / Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
           <tbody id="sched-tb"></tbody>
@@ -282,13 +282,13 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
         <select id="i-cat"><option value="">All Categories</option></select>
         <input type="search" id="i-q" placeholder="Search…" style="width:200px">
         <div class="tb-sep"></div>
-        <button class="btn btn-p admin-only" id="btn-add-inst" style="display:none">+ Add Instructor</button>
+        <button class="btn btn-p admin-only admin-strict" id="btn-add-inst" style="display:none">+ Add Instructor</button>
       </div>
       <div class="table-wrap">
         <table id="inst-tbl">
           <thead><tr>
             <th>Display Name</th><th>Last</th><th>First</th><th>Category</th><th>Email</th><th>EID</th>
-            <th class="admin-only" style="display:none">Edit</th>
+            <th class="admin-only admin-strict" style="display:none">Edit</th>
           </tr></thead>
           <tbody id="inst-tb"></tbody>
         </table>
@@ -385,7 +385,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>Where Roomed</label><input id="om-room" placeholder="e.g. OHSU, PSU, Online"></div>
       <div><label>Room #</label><input id="om-roomn"></div>
       <div class="fsec">Caps &amp; Enrollment</div>
-      <div><label>CRN</label><input id="om-crn" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">Registration number(s) — separate multiple with commas</div></div>
+      <div><label>PSU CRN(s)</label><input id="om-crn-psu" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">PSU registration number(s) — separate multiple with commas</div></div>
+      <div><label>OHSU CRN(s)</label><input id="om-crn-ohsu" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">OHSU registration number(s) — separate multiple with commas</div></div>
       <div><label>Total Cap</label><input id="om-cap" type="number"></div>
       <div><label>Enrollment (actual)</label><input id="om-enroll" type="number"><div class="fhint">Fill on Day 1 of term</div></div>
       <div><label>OHSU Cap 1</label><input id="om-o1" type="number"></div>
@@ -782,7 +783,7 @@ async function loadData(){
       psuCap1:S(o.psu_cap1), psuCap2:S(o.psu_cap2),
       restrictOhsu:S(o.restrict_ohsu), restrictPsu:S(o.restrict_psu),
       psuText:S(o.psu_text), adminNotes:S(o.admin_notes), pot:S(o.pot),
-      crn:S(o.crn), printStatus:(o.print_status||'Print')
+      crnPsu:S(o.crn_psu), crnOhsu:S(o.crn_ohsu), printStatus:(o.print_status||'Print')
     };
   });
 
@@ -1225,19 +1226,22 @@ function renderSched(){
     const canT=canEditTerm(o.term);
     const eb=canEdit()?`<td>${canT?`<button class="btn btn-s btn-sm eo" data-id="${esc(o.id)}">Edit</button>`:'<span class="muted" title="This term is frozen" style="color:#94A3B8;font-size:11px">🔒</span>'}</td>`:'';
     const ro=canT?'':'readonly';
-    const hasNotes=!!(o.adminNotes&&String(o.adminNotes).trim());
+    // Internal detail rather than a secret: admin_notes is still in the anon
+    // payload (offerings is anon-granted and read with select('*')), so this
+    // keeps notes off the public schedule without pretending to withhold them.
+    const hasNotes=signedIn&&!!(o.adminNotes&&String(o.adminNotes).trim());
     const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
     const potBadge=(/^Summer/i.test(o.term)&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
     const _crs=DB.courses.find(c=>c.id===o.courseId);
-    const permReq=(_crs&&_crs.permission==='Yes')?' <span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
+    const permReq=(_crs&&_crs.permission==='Yes')?'<span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
     const incomplete=isIncomplete(o);
     const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing/TBD instructor or days, or missing modality or cap">⚠</span>':'';
-    const flags=(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
+    const flags=permReq+(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${permReq}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -1531,8 +1535,10 @@ function renderCht(){
       const offs=inst.terms[t];let tR=0,tE=0;
       const cells=offs.map(o=>{
         tR+=o.cr;tE+=o.eff;pc[o.pfx]=(pc[o.pfx]||0)+o.cr;gc[o.grugb]=(gc[o.grugb]||0)+o.cr;
-        const sn=o.course.split(':').slice(-1)[0].trim();
-        return`<div style="font-size:10px;padding:1px 0">${esc(sn)}`
+        // Full name, not the bare title: a CHTool row is read alongside the
+        // Schedule tab, and "BSTA - 500: Reading and Research" matches what is
+        // shown there. Stripping the number made the two views disagree.
+        return`<div style="font-size:10px;padding:1px 0">${esc(o.course)}`
           +(o.ex?' <span style="background:#FEF3C7;color:#92400E;padding:0 3px;border-radius:2px;font-size:9px">EX</span>':'')
           +(o.two?' <span style="background:#DBEAFE;color:#1E40AF;padding:0 3px;border-radius:2px;font-size:9px">2I</span>':'')+'</div>';
       }).join('');
@@ -1636,7 +1642,7 @@ function toggleOff(cid,pfx,term){
     const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
       instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
       days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',
-      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:'',crn:'',printStatus:'Print'};
+      modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:'',crnPsu:'',crnOhsu:'',printStatus:'Print'};
     sb.from('offerings').insert(offRow(off)).select().single().then(({data:oi,error})=>{
       if(error){setSS('⚠ Not added: '+error.message);return;}
       off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
@@ -1659,7 +1665,10 @@ function renderInst(){
   const assigned=new Set();
   DB.offerings.forEach(o=>{if(o.instructor1)assigned.add(o.instructor1);if(o.instructor2)assigned.add(o.instructor2);});
   instrs.forEach(i=>{
-    const eb=canEdit()?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
+    // isAdmin, not canEdit(): the roster is admin territory. A PD reads it and
+    // assigns from it, but adding or reclassifying an instructor is a hiring
+    // fact that admin establishes first. Matched by RLS on instructor_meta.
+    const eb=isAdmin?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
     const notUsed=!i.isPlaceholder&&!isTBD(i.displayName)&&!assigned.has(i.displayName);
     const flag=notUsed?' <span class="flag-warn" title="Not assigned to any offering on the Schedule">⚠</span>':'';
     h+=`<tr><td><strong>${esc(i.displayName)}</strong>${flag}</td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
@@ -1687,14 +1696,14 @@ function openOM(id){
     setv('om-cap',o.totalCap);setv('om-enroll',o.enrollment);setv('om-o1',o.ohsuCap1);setv('om-o2',o.ohsuCap2);
     setv('om-p1',o.psuCap1);setv('om-p2',o.psuCap2);setv('om-ro',o.restrictOhsu);setv('om-rp',o.restrictPsu);
     setv('om-pt',o.psuText);setv('om-notes',o.adminNotes);
-    setv('om-crn',o.crn??'');setv('om-print',o.printStatus||'Print');
+    setv('om-crn-psu',o.crnPsu??'');setv('om-crn-ohsu',o.crnOhsu??'');setv('om-print',o.printStatus||'Print');
     // POT
     const potVal=o.pot??'';
     if(potVal&&potVal!==''&&!document.querySelector('#om-pot option[value="'+potVal+'"]')){
       setv('om-pot','other');setv('om-pot-other',potVal);$('om-pot-other').style.display='';
     }else{setv('om-pot',potVal);setv('om-pot-other','');$('om-pot-other').style.display='none';}
   }else{
-    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-pot','om-pot-other','om-crn'].forEach(f=>setv(f,''));
+    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-pot','om-pot-other','om-crn-psu','om-crn-ohsu'].forEach(f=>setv(f,''));
     setv('om-print','Print');
     $('om-pot-other').style.display='none';
   }
@@ -1744,7 +1753,7 @@ const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:
 const SNAP_KEYS=['id','term','prefix','courseNumber','courseId','fullName','instructor1',
   'instructor2','days','time','modality','roomed','roomNumber','totalCap','enrollment',
   'ohsuCap1','ohsuCap2','psuCap1','psuCap2','restrictOhsu','restrictPsu','psuText','adminNotes',
-  'pot','crn','printStatus'];
+  'pot','crnPsu','crnOhsu','printStatus'];
 function snapOff(o){
   if(!o)return null;
   const s={}; SNAP_KEYS.forEach(k=>{s[k]=o[k]??'';}); return s;
@@ -1863,7 +1872,7 @@ function _conflicts(dbRow,expectedSnap){
   const exp=offRow(expectedSnap);            // snapshot → column shape
   const keys=['term','days','time','modality','roomed','room_number','total_cap',
     'enrollment','ohsu_cap1','ohsu_cap2','psu_cap1','psu_cap2','restrict_ohsu','restrict_psu',
-    'psu_text','admin_notes','pot','crn','print_status','instructor1_id','instructor2_id'];
+    'psu_text','admin_notes','pot','crn_psu','crn_ohsu','print_status','instructor1_id','instructor2_id'];
   return keys.some(k=>String(dbRow[k]??'')!==String(exp[k]??''));
 }
 /* legacy offering object → offerings table columns */
@@ -1877,8 +1886,13 @@ function offRow(d){
     ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
     restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
     admin_notes:T(d.adminNotes), pot:T(d.pot),
-    crn:T(d.crn), print_status:(d.printStatus||'Print')};
+    crn_psu:T(d.crnPsu), crn_ohsu:T(d.crnOhsu), print_status:(d.printStatus||'Print')};
 }
+
+/* CRN fields are free text that should end up as a clean comma-separated list
+   of digits. Shared by the PSU and OHSU inputs so the two cannot drift. */
+const _crnList=v=>String(v??'').replace(/[^0-9,\s]/g,'').split(',')
+  .map(x=>x.trim()).filter(Boolean).join(', ');
 
 function saveOff(){
   const cid=val('om-course');const c=DB.courses.find(x=>x.id===cid);
@@ -1890,7 +1904,7 @@ function saveOff(){
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:c.grugb||'GR',totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
-    crn:val('om-crn').replace(/[^0-9,\s]/g,'').split(',').map(s=>s.trim()).filter(Boolean).join(', '),printStatus:val('om-print')||'Print',
+    crnPsu:_crnList(val('om-crn-psu')),crnOhsu:_crnList(val('om-crn-ohsu')),printStatus:val('om-print')||'Print',
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
   const row=offRow(data);
   if(eidO){
@@ -2117,10 +2131,10 @@ function triggerSave(){
 /* ─── CSV EXPORTS ───────────────────────────────────────────── */
 function expSched(){
   const term=val('f-term'),pfx=val('f-pfx');
-  const rows=[['Term','Prefix','Course','CRN','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
+  const rows=[['Term','Prefix','Course','PSU CRN(s)','OHSU CRN(s)','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
   DB.offerings.filter(o=>(!term||o.term===term)&&(!pfx||o.prefix===pfx))
     .sort((a,b)=>(TO[a.term]-TO[b.term])||a.prefix.localeCompare(b.prefix))
-    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crn??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
+    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crnPsu??'',o.crnOhsu??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
   dlCSV(rows,'SPH_Schedule_AY26-27.csv');
 }
 function expCht(){
@@ -2139,7 +2153,7 @@ function expCht(){
     let aR=0,aE=0;const pc={};progs().forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
     const tc=[],ec=[],rc=[];
     TERMS.forEach(t=>{const offs=inst.terms[t];let tR=0,tE=0;
-      tc.push(offs.map(o=>o.course.split(':').slice(-1)[0].trim()+(o.ex?' [EX]':'')+(o.two?' [2I]':'')).join('; '));
+      tc.push(offs.map(o=>o.course+(o.ex?' [EX]':'')+(o.two?' [2I]':'')).join('; '));
       offs.forEach(o=>{tR+=o.cr;tE+=o.eff;pc[o.pfx]=(pc[o.pfx]||0)+o.cr;gc[o.grugb]=(gc[o.grugb]||0)+o.cr;});
       ec.push(tE||'');rc.push(tR||'');aR+=tR;aE+=tE;});
     const fte=(FTE_CATS.has(inst.cat)&&aE)?(aE*0.03).toFixed(3):'';
@@ -2199,7 +2213,7 @@ async function genReport(){
 const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','Instructor 2'],
   ['days','Days'],['time','Time'],['modality','Modality'],['roomed','Where Roomed'],
   ['roomNumber','Room #'],['totalCap','Total Cap'],
-  ['crn','CRN'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
+  ['crnPsu','PSU CRN(s)'],['crnOhsu','OHSU CRN(s)'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
   ['psuCap1','PSU Cap 1'],['psuCap2','PSU Cap 2'],['restrictOhsu','Restrict OHSU'],
   ['restrictPsu','Restrict PSU'],['psuText','PSU Text'],['adminNotes','Admin Notes'],['pot','POT']];
 function _fmtTs(iso){
@@ -2533,7 +2547,10 @@ async function signInEmail(email){
 }
 async function signOut(){
   if(sb)await sb.auth.signOut();
-  disableAdmin();updateAuthBar(null);setSS('Signed out');
+  signedIn=false;isPD=false;
+  disableAdmin();applyAuthVis();updateAuthBar(null);
+  renderAll();                  // repaint: notes tooltips are gated on signedIn
+  setSS('Signed out');
 }
 function setPersist(on){
   try{
