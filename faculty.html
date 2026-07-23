@@ -488,7 +488,13 @@ async function loadData(){
     : sb.from(src).select('*');
 
   const noRows=Promise.resolve({data:[],error:null});
-  const canProfile=TIER!=='public';   // web-profile tables are viewer+admin only (no anon grant)
+  // Website-profile content has two read paths. Signed-in tiers query the base
+  // tables and see drafts alongside published work. Anon queries the *_public
+  // views, which filter on is_published at BOTH levels (profile, then item) and
+  // derive membership from faculty_public so every exclusion already encoded
+  // there comes along. The base tables still carry no anon grant — an
+  // unpublished biography never reaches an anonymous browser.
+  const pfx=TIER==='public'?'_public':'';
   const [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]=await Promise.all([
     fq,
     sb.from('courses').select('id,full_name,prefix'),
@@ -498,15 +504,15 @@ async function loadData(){
     TIER==='admin' ? sb.from('faculty_category').select('faculty_id,category')
                    : noRows,
     sb.from('terms').select('code,label,academic_year,sort_order'),
-    // Website-profile content — signed-in tiers only; anon has no grant on these.
-    canProfile ? sb.from('faculty_web_profile').select('*') : noRows,
-    canProfile ? sb.from('faculty_education').select('*')   : noRows,
-    canProfile ? sb.from('faculty_research').select('*')    : noRows,
-    canProfile ? sb.from('faculty_award').select('*')       : noRows,
-    // CEPH status is the one web-profile field that is public by design:
-    // accreditation requires the designation on public-facing profiles. It
-    // comes from its own two-column anon-granted view, never from
-    // faculty_web_profile, which stays signed-in only.
+    sb.from('faculty_web_profile'+pfx).select('*'),
+    sb.from('faculty_education'  +pfx).select('*'),
+    sb.from('faculty_research'   +pfx).select('*'),
+    sb.from('faculty_award'      +pfx).select('*'),
+    // CEPH status is public regardless of publish state: accreditation requires
+    // the designation on public-facing profiles, so it cannot wait on someone
+    // ticking Published. This narrow two-column view is the only path that
+    // carries it for an unpublished profile — cephOf() prefers the full
+    // web-profile row when one is present and falls back to here.
     sb.from('faculty_ceph_public').select('faculty_id,ceph_flag')
   ]);
   for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]){
@@ -765,40 +771,52 @@ function renderProf(id){
     </div>
   </div>`;
 
-  /* website profile — Biography / Education / Research (viewer + admin).
-     Anon has no grant on these tables, so the sections are signed-in only. */
-  if(TIER!=='public'){
+  /* website profile — Biography / Education / Research / Awards, now rendered
+     at every tier. What differs is the SOURCE, not the markup: signed-in tiers
+     hold drafts, anon holds only what loadData fetched from the *_public views.
+
+     One behavioural difference. An empty section prompts an editor ("No
+     biography yet") but tells a visitor nothing except what is missing, so at
+     the public tier empty sections are omitted rather than announced. An
+     unpublished profile therefore renders as name, role and courses — which is
+     the correct public face of a profile nobody has published. */
+  {
+    const anon=TIER==='public';
+
     const bioMd=wp&&N(wp.biography_md);
-    h+=`<div class="card"><h3>Biography</h3>`+
-       (bioMd?`<div class="bio">${mdToHtml(wp.biography_md)}</div>`
-             :`<div class="gate">No biography yet.</div>`)+`</div>`;
+    if(bioMd||!anon)
+      h+=`<div class="card"><h3>Biography</h3>`+
+         (bioMd?`<div class="bio">${mdToHtml(wp.biography_md)}</div>`
+               :`<div class="gate">No biography yet.</div>`)+`</div>`;
 
     const eds=EDU[f.id]||[];
-    h+=`<div class="card"><h3>Education, Fellowships, and Residencies</h3>`+
-       (eds.length?`<div class="edulist">`+eds.map(ed=>{
-          const main=[ed.degree,ed.institution,ed.field].map(N).filter(Boolean).join(', ');
-          const yr=N(ed.year_text);
-          return `<div class="edurow"><span class="edumain">${esc(main)||'—'}</span>`+
-                 `${yr?`<span class="eduyr">${esc(yr)}</span>`:''}</div>`;
-        }).join('')+`</div>`
-       :`<div class="gate">No education entries yet.</div>`)+`</div>`;
+    if(eds.length||!anon)
+      h+=`<div class="card"><h3>Education, Fellowships, and Residencies</h3>`+
+         (eds.length?`<div class="edulist">`+eds.map(ed=>{
+            const main=[ed.degree,ed.institution,ed.field].map(N).filter(Boolean).join(', ');
+            const yr=N(ed.year_text);
+            return `<div class="edurow"><span class="edumain">${esc(main)||'—'}</span>`+
+                   `${yr?`<span class="eduyr">${esc(yr)}</span>`:''}</div>`;
+          }).join('')+`</div>`
+         :`<div class="gate">No education entries yet.</div>`)+`</div>`;
 
     const rs=RES[f.id]||[];
-    h+=`<div class="card"><h3>Research and Publications</h3>`+
-       (rs.length?itemListHTML('reslist',rs)
-       :`<div class="gate">No research or publications yet.</div>`)+`</div>`;
+    if(rs.length||!anon)
+      h+=`<div class="card"><h3>Research and Publications</h3>`+
+         (rs.length?itemListHTML('reslist',rs)
+         :`<div class="gate">No research or publications yet.</div>`)+`</div>`;
 
     const aw=AWD[f.id]||[];
-    h+=`<div class="card"><h3>Awards and Honors</h3>`+
-       (aw.length?itemListHTML('awdlist',aw)
-       :`<div class="gate">No awards or honors yet.</div>`)+`</div>`;
+    if(aw.length||!anon)
+      h+=`<div class="card"><h3>Awards and Honors</h3>`+
+         (aw.length?itemListHTML('awdlist',aw)
+         :`<div class="gate">No awards or honors yet.</div>`)+`</div>`;
   }
 
-  /* contact + appointment — viewer tier and up */
-  if(TIER==='public'){
-    h+=`<div class="card"><h3>Appointment</h3>
-      <div class="gate"><b>Sign in</b> to see contact and appointment details.</div></div>`;
-  }else{
+  /* contact + appointment — viewer tier and up. Anon gets no card at all, not
+     even a sign-in prompt: the public profile is web profile plus courses, and
+     a placeholder does nothing but advertise what is being withheld. */
+  if(TIER!=='public'){
     h+=`<div class="card"><h3>Contact &amp; Appointment</h3><div class="grid">
       ${fld('Email',f.email,v=>`<a href="mailto:${esc(v)}" style="color:var(--teal)">${esc(v)}</a>`)}
       ${fld('Secondary Email',f.secondary_email,v=>`<a href="mailto:${esc(v)}" style="color:var(--teal)">${esc(v)}</a>`)}
