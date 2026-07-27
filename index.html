@@ -398,6 +398,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div class="s2"><label>Restrictions — PSU</label><input id="om-rp"></div>
       <div><label>PSU Text</label><input id="om-pt"></div>
       <div><label>Print in schedule?</label><select id="om-print"><option>Print</option><option>No Print</option></select><div class="fhint">"No Print" shows a 🚫 on the Schedule</div></div>
+      <div><label>Fee</label><input id="om-fee" placeholder="e.g. $50"></div>
+      <div><label>Fee Type</label><input id="om-fee-type" placeholder="e.g. Lab fee, Course fee"></div>
       <div class="s2"><label>Admin Notes</label><textarea id="om-notes" rows="2"></textarea></div>
     </div></div>
     <div class="mft">
@@ -514,6 +516,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>From date</label><input id="rp-from" type="date"></div>
       <div><label>To date</label><input id="rp-to" type="date"><div class="fhint">Leave "To" blank for “up to now”.</div></div>
       <div class="s2"><label>Editor</label><select id="rp-actor"><option value="">All editors</option></select></div>
+      <div class="s2"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal"><input type="checkbox" id="rp-exself"> Exclude my own changes</label></div>
       <div class="s2"><div class="fhint" id="rp-status">Pick a range and generate. Defaults to changes since your last report on this device.</div></div>
     </div></div>
     <div class="mft">
@@ -783,6 +786,7 @@ async function loadData(){
       psuCap1:S(o.psu_cap1), psuCap2:S(o.psu_cap2),
       restrictOhsu:S(o.restrict_ohsu), restrictPsu:S(o.restrict_psu),
       psuText:S(o.psu_text), adminNotes:S(o.admin_notes), pot:S(o.pot),
+      fee:S(o.fee), feeType:S(o.fee_type),
       crnPsu:S(o.crn_psu), crnOhsu:S(o.crn_ohsu), printStatus:(o.print_status||'Print')
     };
   });
@@ -1705,6 +1709,7 @@ function openOM(id){
     setv('om-cap',o.totalCap);setv('om-enroll',o.enrollment);setv('om-o1',o.ohsuCap1);setv('om-o2',o.ohsuCap2);
     setv('om-p1',o.psuCap1);setv('om-p2',o.psuCap2);setv('om-ro',o.restrictOhsu);setv('om-rp',o.restrictPsu);
     setv('om-pt',o.psuText);setv('om-notes',o.adminNotes);
+    setv('om-fee',o.fee);setv('om-fee-type',o.feeType);
     setv('om-crn-psu',o.crnPsu??'');setv('om-crn-ohsu',o.crnOhsu??'');setv('om-print',o.printStatus||'Print');
     // POT
     const potVal=o.pot??'';
@@ -1712,7 +1717,7 @@ function openOM(id){
       setv('om-pot','other');setv('om-pot-other',potVal);$('om-pot-other').style.display='';
     }else{setv('om-pot',potVal);setv('om-pot-other','');$('om-pot-other').style.display='none';}
   }else{
-    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-pot','om-pot-other','om-crn-psu','om-crn-ohsu'].forEach(f=>setv(f,''));
+    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-fee','om-fee-type','om-pot','om-pot-other','om-crn-psu','om-crn-ohsu'].forEach(f=>setv(f,''));
     setv('om-print','Print');
     $('om-pot-other').style.display='none';
   }
@@ -1762,7 +1767,7 @@ const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:
 const SNAP_KEYS=['id','term','prefix','courseNumber','courseId','fullName','instructor1',
   'instructor2','days','time','modality','roomed','roomNumber','totalCap','enrollment',
   'ohsuCap1','ohsuCap2','psuCap1','psuCap2','restrictOhsu','restrictPsu','psuText','adminNotes',
-  'pot','crnPsu','crnOhsu','printStatus'];
+  'pot','fee','feeType','crnPsu','crnOhsu','printStatus'];
 function snapOff(o){
   if(!o)return null;
   const s={}; SNAP_KEYS.forEach(k=>{s[k]=o[k]??'';}); return s;
@@ -1894,7 +1899,7 @@ function offRow(d){
     roomed:T(d.roomed), room_number:T(d.roomNumber), total_cap:I(d.totalCap), enrollment:I(d.enrollment),
     ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
     restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
-    admin_notes:T(d.adminNotes), pot:T(d.pot),
+    admin_notes:T(d.adminNotes), pot:T(d.pot), fee:T(d.fee), fee_type:T(d.feeType),
     crn_psu:T(d.crnPsu), crn_ohsu:T(d.crnOhsu), print_status:(d.printStatus||'Print')};
 }
 
@@ -1913,6 +1918,7 @@ function saveOff(){
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:c.grugb||'GR',totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
+    fee:val('om-fee'),feeType:val('om-fee-type'),
     crnPsu:_crnList(val('om-crn-psu')),crnOhsu:_crnList(val('om-crn-ohsu')),printStatus:val('om-print')||'Print',
     pot:val('om-pot')==='other'?val('om-pot-other'):val('om-pot')};
   const row=offRow(data);
@@ -2189,6 +2195,7 @@ async function openReport(){
     const emails=[...new Set((data||[]).map(r=>r.actor_email).filter(Boolean))].sort();
     emails.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;sel.appendChild(o);});
   }catch(e){}
+  $('rp-exself').checked=false;
   $('rp-status').textContent='Pick a range and generate. Defaults to changes since your last report on this device.';
   openM('mo-report');
 }
@@ -2208,8 +2215,11 @@ async function genReport(){
   if(error){$('rp-status').textContent='⚠ '+error.message;return;}
   const all=data||[];
   const reverted=new Set(all.filter(r=>r.is_undo&&r.reverts_id).map(r=>r.reverts_id));
-  const rows=all.filter(r=>!r.is_undo && !reverted.has(r.id));  // net changes only
-  const rep=buildReportText(rows,fromStr,toStr||'(now)',actor);
+  let rows=all.filter(r=>!r.is_undo && !reverted.has(r.id));  // net changes only
+  // Optionally drop the current user's own edits from the report output.
+  const exSelf=$('rp-exself').checked;
+  if(exSelf&&currentUserEmail)rows=rows.filter(r=>r.actor_email!==currentUserEmail);
+  const rep=buildReportText(rows,fromStr,toStr||'(now)',actor,exSelf?currentUserEmail:null);
   // Download as .txt
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([rep.text],{type:'text/plain;charset=utf-8'}));
@@ -2224,13 +2234,14 @@ const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','
   ['roomNumber','Room #'],['totalCap','Total Cap'],
   ['crnPsu','PSU CRN(s)'],['crnOhsu','OHSU CRN(s)'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
   ['psuCap1','PSU Cap 1'],['psuCap2','PSU Cap 2'],['restrictOhsu','Restrict OHSU'],
-  ['restrictPsu','Restrict PSU'],['psuText','PSU Text'],['adminNotes','Admin Notes'],['pot','POT']];
+  ['restrictPsu','Restrict PSU'],['psuText','PSU Text'],['adminNotes','Admin Notes'],['pot','POT'],
+  ['fee','Fee'],['feeType','Fee Type']];
 function _fmtTs(iso){
   const d=new Date(iso);
   const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
 }
-function buildReportText(rows,from,to,actor){
+function buildReportText(rows,from,to,actor,exSelfEmail){
   // Net-zero field suppression (update rows only): for each offering, if a
   // field's value in the EARLIEST update's `before` equals its value in the
   // LATEST update's `after`, the field netted to no change over the window —
@@ -2253,6 +2264,7 @@ function buildReportText(rows,from,to,actor){
   L.push('SPH SCHEDULE — CHANGE REPORT');
   L.push('Range: '+from+'  →  '+to);
   if(actor)L.push('Editor: '+actor);
+  if(exSelfEmail)L.push('Excluding edits by: '+exSelfEmail);
   L.push('Generated: '+_fmtTs(new Date().toISOString()));
   L.push('='.repeat(60));
   L.push('');
