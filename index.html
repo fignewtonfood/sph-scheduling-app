@@ -704,12 +704,29 @@ async function loadData(){
   await loadTerms();          // must precede rendering: TERMS drives every view
   setLM('Fetching schedule data…');
 
+  // Paginated fetch. A single select is capped by the server (~1000 rows), and
+  // total offerings across all academic years exceeds that — silently
+  // truncating the tail, which is always the most-recently-created year. Loop
+  // in ranges until a short page signals the end. Returns the {data,error}
+  // shape the rest of loadData already expects.
+  const fetchAll=async(table,cols='*')=>{
+    const PAGE=1000; let from=0; const all=[];
+    for(;;){
+      const {data,error}=await sb.from(table).select(cols).range(from,from+PAGE-1);
+      if(error)return {data:null,error};
+      all.push(...(data||[]));
+      if(!data||data.length<PAGE)break;
+      from+=PAGE;
+    }
+    return {data:all,error:null};
+  };
+
   const [cR,oR,mR,dR,lR]=await Promise.all([
-    sb.from('courses').select('*'),
-    sb.from('offerings').select('*'),
-    sb.from('instructor_meta').select('*'),
-    sb.from('faculty_directory').select('*'),
-    sb.from('app_lists').select('*')
+    fetchAll('courses'),
+    fetchAll('offerings'),
+    fetchAll('instructor_meta'),
+    fetchAll('faculty_directory'),
+    fetchAll('app_lists')
   ]);
   for(const r of [cR,oR,mR,dR,lR]){
     if(r.error){setLM('');setSS('⚠ Load failed: '+r.error.message);throw r.error;}
@@ -2629,7 +2646,7 @@ function updateAuthBar(user,admin){
 
 /* ─── BOOTSTRAP ─────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded',async()=>{
-  console.log('%c[SPH scheduling] build 2026-07-28a — boot re-read fix','color:#0a7');
+  console.log('%c[SPH scheduling] build 2026-07-28b — paginated load','color:#0a7');
   wireEvents();
   initSupabase();
   buildAuthBar();

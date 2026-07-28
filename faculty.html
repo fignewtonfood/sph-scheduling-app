@@ -491,9 +491,21 @@ async function loadData(){
 
   setLM('Loading faculty…');
   const src = TIER==='admin' ? 'faculty' : (TIER==='viewer' ? 'faculty_profile' : 'faculty_public');
-  const fq = TIER==='admin'
-    ? sb.from('faculty').select('*').eq('is_placeholder',false)
-    : sb.from(src).select('*');
+  // Paginated fetch. A single select is capped by the server (~1000 rows), and
+  // offerings already exceed that (publications may too) — an unpaginated read
+  // silently drops the tail. Loop in ranges until a short page ends it. Takes a
+  // factory because each page needs a fresh builder (builders are single-use).
+  const paginate=async(makeQuery)=>{
+    const PAGE=1000; let from=0; const all=[];
+    for(;;){
+      const {data,error}=await makeQuery().range(from,from+PAGE-1);
+      if(error)return {data:null,error};
+      all.push(...(data||[]));
+      if(!data||data.length<PAGE)break;
+      from+=PAGE;
+    }
+    return {data:all,error:null};
+  };
 
   const noRows=Promise.resolve({data:[],error:null});
   // Website-profile content has two read paths. Signed-in tiers query the base
@@ -504,24 +516,26 @@ async function loadData(){
   // unpublished biography never reaches an anonymous browser.
   const pfx=TIER==='public'?'_public':'';
   const [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]=await Promise.all([
-    fq,
-    sb.from('courses').select('id,full_name,prefix'),
-    sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality'),
+    paginate(()=> TIER==='admin'
+      ? sb.from('faculty').select('*').eq('is_placeholder',false)
+      : sb.from(src).select('*')),
+    paginate(()=> sb.from('courses').select('id,full_name,prefix')),
+    paginate(()=> sb.from('offerings').select('id,term,course_id,instructor1_id,instructor2_id,days,time,modality')),
     // The admin source is the base table, which has no `categories` array —
     // membership lives in faculty_category. Fetch it separately for that tier.
-    TIER==='admin' ? sb.from('faculty_category').select('faculty_id,category')
+    TIER==='admin' ? paginate(()=> sb.from('faculty_category').select('faculty_id,category'))
                    : noRows,
-    sb.from('terms').select('code,label,academic_year,sort_order'),
-    sb.from('faculty_web_profile'+pfx).select('*'),
-    sb.from('faculty_education'  +pfx).select('*'),
-    sb.from('faculty_research'   +pfx).select('*'),
-    sb.from('faculty_award'      +pfx).select('*'),
+    paginate(()=> sb.from('terms').select('code,label,academic_year,sort_order')),
+    paginate(()=> sb.from('faculty_web_profile'+pfx).select('*')),
+    paginate(()=> sb.from('faculty_education'  +pfx).select('*')),
+    paginate(()=> sb.from('faculty_research'   +pfx).select('*')),
+    paginate(()=> sb.from('faculty_award'      +pfx).select('*')),
     // CEPH status is public regardless of publish state: accreditation requires
     // the designation on public-facing profiles, so it cannot wait on someone
     // ticking Published. This narrow two-column view is the only path that
     // carries it for an unpublished profile — cephOf() prefers the full
     // web-profile row when one is present and falls back to here.
-    sb.from('faculty_ceph_public').select('faculty_id,ceph_flag')
+    paginate(()=> sb.from('faculty_ceph_public').select('faculty_id,ceph_flag'))
   ]);
   for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]){
     if(r.error){setLM('');throw r.error;}
@@ -1373,6 +1387,7 @@ function wire(){
 
 /* ─── BOOT ─────────────────────────────────────────────────── */
 (async function boot(){
+  console.log('%c[SPH faculty] build 2026-07-28b — paginated load','color:#0a7');
   wire();
   initSupabase();
   // A magic-link return lands here with tokens in the hash; give Supabase a
