@@ -2641,7 +2641,13 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }
   initDropdowns();
   await refreshAdmin();        // sets admin/pd/viewer based on session
-  await loadTerms();           // re-read: RLS returns more terms once signed in
+  // Re-read AFTER auth resolves. offerings (and terms) are gated by RLS on term
+  // visibility — can_see_term() — so the first read above can race ahead of
+  // session hydration and come back anon, silently dropping every offering in a
+  // draft academic year. The code already re-read terms here for that reason;
+  // extend it to a full reload so a freshly-created/draft AY's offerings load
+  // too, instead of appearing empty until a manual refresh.
+  try{ await loadData(); }catch(e){}
   rebuildTermUI();
   renderAll();
   maybeShowEnrBanner();
