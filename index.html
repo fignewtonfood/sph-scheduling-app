@@ -226,7 +226,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
           <thead><tr>
             <th data-col="term">Term</th><th data-col="prefix">Prefix</th><th data-col="fullName">Course</th>
             <th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
-            <th data-col="modality">Modality</th><th style="text-align:center" title="Permission required to register / Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
+            <th data-col="modality">Modality</th><th style="text-align:center" title="Restrictions / Permission required to register / Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
           <tbody id="sched-tb"></tbody>
@@ -239,6 +239,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div class="toolbar">
         <select id="g-term"></select>
         <select id="g-pfx"><option value="">All Programs</option></select>
+        <select id="g-level"><option value="">All Levels</option><option value="GR">Graduate</option><option value="UG">Undergraduate</option></select>
         <div class="tb-sp"></div>
         <button class="btn btn-s auth-only" id="btn-oc-report">🖨 On-Campus Report</button>
         <span class="tb-hint">Bars = In-Person / Hybrid · Numbers = enrollment (cap if blank)</span>
@@ -382,6 +383,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>Days</label><select id="om-days"></select></div>
       <div><label>Start / End Time</label><input id="om-time" placeholder="e.g. 1300-1450"></div>
       <div><label>Modality</label><select id="om-mod"><option value="">–</option><option>Online (async)</option><option>Online (sync)</option><option>Hybrid</option><option>In-Person</option><option>By Arrangement</option><option>Dept Arranged</option><option>Attend Anywhere</option></select></div>
+      <div><label>LMS</label><select id="om-lms"><option value="">–</option></select><div class="fhint">Only when modality is not In-Person.</div></div>
       <div><label>Where Roomed</label><input id="om-room" placeholder="e.g. OHSU, PSU, Online"></div>
       <div><label>Room #</label><input id="om-roomn"></div>
       <div class="fsec">Caps &amp; Enrollment</div>
@@ -517,7 +519,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>To date</label><input id="rp-to" type="date"><div class="fhint">Leave "To" blank for “up to now”.</div></div>
       <div class="s2"><label>Editor</label><select id="rp-actor"><option value="">All editors</option></select></div>
       <div class="s2"><label style="display:flex;align-items:center;justify-content:flex-start;gap:6px;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;margin:0"><input type="checkbox" id="rp-exself" style="width:auto;flex:none;margin:0"> Exclude my own changes</label></div>
-      <div class="s2"><div class="fhint" id="rp-status">Pick a range and generate. Defaults to changes since your last report on this device.</div></div>
+      <div class="s2"><label style="display:flex;align-items:center;justify-content:flex-start;gap:6px;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;margin:0"><input type="checkbox" id="rp-prevay" style="width:auto;flex:none;margin:0"> Include previous AY's</label></div>
+      <div class="s2"><div class="fhint" id="rp-status">Pick a range and generate. Defaults to changes since your last report on this device, current AY and later.</div></div>
     </div></div>
     <div class="mft">
       <button class="btn btn-s" data-close="mo-report">Close</button>
@@ -653,9 +656,10 @@ const setc=(id,v)=>{const e=$(id);if(e)e.checked=!!v};
 const genid=()=>'x'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
 const parseCR=s=>{const m=String(s??'').match(/(\d+(?:\.\d+)?)/);return m?parseFloat(m[1]):0};
 const termBadge=t=>`<span class="badge ${TC[t]??''}">${esc(TL[t]??t)}</span>`;
-const modPill=m=>{
+const modPill=(m,lms)=>{
   const c=m==='In-Person'?'p-ip':m==='Online (async)'?'p-oa':m==='Online (sync)'?'p-os':m==='Hybrid'?'p-hy':'';
-  return`<span class="pill ${c}">${esc(m)}</span>`;
+  const t=(lms&&String(lms).trim())?` title="LMS: ${esc(lms)}"`:'';
+  return`<span class="pill ${c}"${t}>${esc(m)}</span>`;
 };
 const t2s=t=>{
   if(!t)return null;
@@ -795,7 +799,7 @@ async function loadData(){
       courseId:c.id||'', fullName:c.fullName||'',
       instructor1:i1?i1.displayName:'', instructor2:i2?i2.displayName:'',
       i1Email:'', i2Email:'',
-      days:S(o.days), time:S(o.time), modality:S(o.modality),
+      days:S(o.days), time:S(o.time), modality:S(o.modality), lms:S(o.lms),
       roomed:S(o.roomed), roomNumber:S(o.room_number),
       grugb:c.grugb||'GR',      // derived from the course — offerings.level is no longer read
       totalCap:S(o.total_cap), enrollment:S(o.enrollment),
@@ -1266,14 +1270,17 @@ function renderSched(){
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
     const _crs=DB.courses.find(c=>c.id===o.courseId);
     const permReq=(_crs&&_crs.permission==='Yes')?'<span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
+    const _rParts=[]; const _ro=String(o.restrictOhsu||'').trim(), _rp=String(o.restrictPsu||'').trim();
+    if(_ro)_rParts.push('OHSU: '+_ro); if(_rp)_rParts.push('PSU: '+_rp);
+    const restr=_rParts.length?`<span title="${esc(_rParts.join('\n'))}" style="font-size:11px">⛔</span>`:'';
     const incomplete=isIncomplete(o);
     const warnMark=incomplete?' <span class="flag-warn" title="Incomplete: missing/TBD instructor or days, or missing modality or cap">⚠</span>':'';
-    const flags=permReq+(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
+    const flags=restr+permReq+(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
       <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
-      <td>${modPill(o.modality)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
+      <td>${modPill(o.modality,o.lms)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
       ${eb}
     </tr>`;
@@ -1294,9 +1301,12 @@ function updateEnroll(id,v){
   }
 }
 
+/* Inclusive UG/GR level match, mirroring the Schedule tab's f-level:
+   a "B" (both) offering shows under either UG or GR. */
+function _lvlOk(o,lvl){if(!lvl)return true;const g=o.grugb||'';if(lvl==='GR')return g==='GR'||g==='B';if(lvl==='UG')return g==='UG'||g==='B';return true;}
 /* ─── GANTT ─────────────────────────────────────────────────── */
 function renderGantt(){
-  const term=val('g-term'),pfx=val('g-pfx');
+  const term=val('g-term'),pfx=val('g-pfx'),lvl=val('g-level');
   // On-Campus chart: In-Person and Hybrid (both put students on campus for at
   // least part of the meeting). Online (sync) has days/times but no campus
   // presence, so it's excluded.
@@ -1306,7 +1316,7 @@ function renderGantt(){
   // an explicit number is used as-is. An explicit 0 means "nobody enrolled",
   // so the offering is hidden from the Gantt entirely (and thus counts as 0).
   const enrNum=o=>{const s=String(o.enrollment==null?'':o.enrollment).trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
-  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&enrNum(o)!==0);
+  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&_lvlOk(o,lvl)&&enrNum(o)!==0);
   const wrap=$('gantt-wrap');
   if(!courses.length){wrap.innerHTML='<div class="nores">No In-Person/Hybrid courses for this filter.</div>';return;}
   const pct=s=>((s/N)*100).toFixed(2)+'%';
@@ -1323,7 +1333,7 @@ function renderGantt(){
   }
   html+='</div></div>';
   const totals=Array(5).fill(0).map(()=>new Array(N).fill(0));
-  courses.sort((a,b)=>a.prefix.localeCompare(b.prefix)).forEach((o,ci)=>{
+  courses.sort((a,b)=>a.prefix.localeCompare(b.prefix)||String(a.courseNumber).localeCompare(String(b.courseNumber),undefined,{numeric:true})||a.fullName.localeCompare(b.fullName)).forEach((o,ci)=>{
     const slots=t2s(o.time),days=parseDays(o.days);
     const color=GCOLS[ci%GCOLS.length];
     const cap=parseInt(o.totalCap)||0,en=enrNum(o);
@@ -1367,10 +1377,10 @@ const slotLabel=si=>{ const mins=420+si*30, h=Math.floor(mins/60), m=mins%60;
   const ap=h<12?'am':'pm', h12=h%12===0?12:h%12; return h12+':'+String(m).padStart(2,'0')+ap; };
 const slotRange=si=>slotLabel(si)+'–'+slotLabel(si+1);
 
-function computeOnCampus(term,pfx){
+function computeOnCampus(term,pfx,lvl){
   const SHOW=new Set(['In-Person','Hybrid']);
   const enrNum=o=>{const s=String(o.enrollment==null?'':o.enrollment).trim();return s===''?null:(/^-?\d+$/.test(s)?parseInt(s,10):null);};
-  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&enrNum(o)!==0);
+  const courses=DB.offerings.filter(o=>o.term===term&&SHOW.has(o.modality)&&(!pfx||o.prefix===pfx)&&_lvlOk(o,lvl)&&enrNum(o)!==0);
   const totals=Array(5).fill(0).map(()=>new Array(N_SLOTS).fill(0));
   const meetings=[];                                // flat list for the roster-ish detail
   courses.forEach(o=>{
@@ -1419,8 +1429,8 @@ function _closeLull(run,day,first,last){
 }
 
 function generateOnCampusReport(){
-  const term=val('g-term'), pfx=val('g-pfx');
-  const {courses,totals,meetings}=computeOnCampus(term,pfx);
+  const term=val('g-term'), pfx=val('g-pfx'), lvl=val('g-level');
+  const {courses,totals,meetings}=computeOnCampus(term,pfx,lvl);
   const termLabel=TL[term]||term;
   if(!courses.length){setSS('No In-Person/Hybrid courses to report for '+termLabel);return;}
   const days=analyzeDays(totals);
@@ -1473,6 +1483,7 @@ function generateOnCampusReport(){
 
   const genAt=_fmtTs(new Date().toISOString());
   const pfxNote=pfx?` · Program: ${pfx}`:' · All programs';
+  const lvlNote=lvl==='GR'?' · Graduate':lvl==='UG'?' · Undergraduate':'';
   const shStr=Math.round(studentHours).toLocaleString();
   const doc=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>On-Campus Report — ${termLabel}</title>
 <style>
@@ -1506,7 +1517,7 @@ function generateOnCampusReport(){
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨 Print / Save PDF</button><button class="sec" onclick="window.close()">Close</button></div>
   <h1>On-Campus Headcount Report</h1>
-  <div class="sub">${termLabel}${pfxNote} · Generated ${genAt} · Basis: enrollment (cap in parens when blank), In-Person + Hybrid, 0-enrollment excluded</div>
+  <div class="sub">${termLabel}${pfxNote}${lvlNote} · Generated ${genAt} · Basis: enrollment (cap in parens when blank), In-Person + Hybrid, 0-enrollment excluded</div>
   <div class="cards">
     <div class="card"><div class="k">On-campus classes</div><div class="v">${meetings.length}</div></div>
     <div class="card"><div class="k">Peak on campus</div><div class="v">${days[busiestDay].peak}</div><div class="k">${GDAYS[busiestDay]} @ ${days[busiestDay].peakSlots.length?slotRange(days[busiestDay].peakSlots[0]):''}</div></div>
@@ -1722,7 +1733,7 @@ function openOM(id){
     const o=DB.offerings.find(x=>x.id===id);if(!o)return;
     setv('om-term',o.term);setv('om-course',o.courseId);setv('om-i1',o.instructor1);setv('om-i2',o.instructor2);
     setv('om-e1',o.i1Email);setv('om-e2',o.i2Email);ensureOpt('om-days',o.days);setv('om-days',o.days);setv('om-time',o.time);
-    setv('om-mod',o.modality);setv('om-room',o.roomed);setv('om-roomn',o.roomNumber);
+    setv('om-mod',o.modality);ensureOpt('om-lms',o.lms);setv('om-lms',o.lms);setv('om-room',o.roomed);setv('om-roomn',o.roomNumber);
     setv('om-cap',o.totalCap);setv('om-enroll',o.enrollment);setv('om-o1',o.ohsuCap1);setv('om-o2',o.ohsuCap2);
     setv('om-p1',o.psuCap1);setv('om-p2',o.psuCap2);setv('om-ro',o.restrictOhsu);setv('om-rp',o.restrictPsu);
     setv('om-pt',o.psuText);setv('om-notes',o.adminNotes);
@@ -1734,12 +1745,18 @@ function openOM(id){
       setv('om-pot','other');setv('om-pot-other',potVal);$('om-pot-other').style.display='';
     }else{setv('om-pot',potVal);setv('om-pot-other','');$('om-pot-other').style.display='none';}
   }else{
-    ['om-e1','om-e2','om-time','om-room','om-roomn','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-fee','om-fee-type','om-pot','om-pot-other','om-crn-psu','om-crn-ohsu'].forEach(f=>setv(f,''));
+    ['om-e1','om-e2','om-time','om-room','om-roomn','om-lms','om-cap','om-enroll','om-o1','om-o2','om-p1','om-p2','om-ro','om-rp','om-pt','om-notes','om-fee','om-fee-type','om-pot','om-pot-other','om-crn-psu','om-crn-ohsu'].forEach(f=>setv(f,''));
     setv('om-print','Print');
     $('om-pot-other').style.display='none';
   }
   togglePotRow();
+  toggleLmsField();
   openM('mo-off');
+}
+function toggleLmsField(){
+  const sel=$('om-lms'); if(!sel)return;
+  if(val('om-mod')==='In-Person'){sel.value='';sel.disabled=true;}
+  else sel.disabled=false;
 }
 function togglePotRow(){
   const isSummer = /^Summer/i.test(val('om-term'));
@@ -1782,7 +1799,7 @@ const _courseUuid=cid=>{const c=DB.courses.find(x=>x.id===cid);return c?c._uuid:
 
 // A stable, serializable snapshot of an offering (legacy shape), for before/after.
 const SNAP_KEYS=['id','term','prefix','courseNumber','courseId','fullName','instructor1',
-  'instructor2','days','time','modality','roomed','roomNumber','totalCap','enrollment',
+  'instructor2','days','time','modality','lms','roomed','roomNumber','totalCap','enrollment',
   'ohsuCap1','ohsuCap2','psuCap1','psuCap2','restrictOhsu','restrictPsu','psuText','adminNotes',
   'pot','fee','feeType','crnPsu','crnOhsu','printStatus'];
 function snapOff(o){
@@ -1901,7 +1918,7 @@ async function _fetchOffRow(uuid){
 function _conflicts(dbRow,expectedSnap){
   if(!dbRow||!expectedSnap)return false;
   const exp=offRow(expectedSnap);            // snapshot → column shape
-  const keys=['term','days','time','modality','roomed','room_number','total_cap',
+  const keys=['term','days','time','modality','lms','roomed','room_number','total_cap',
     'enrollment','ohsu_cap1','ohsu_cap2','psu_cap1','psu_cap2','restrict_ohsu','restrict_psu',
     'psu_text','admin_notes','pot','crn_psu','crn_ohsu','print_status','instructor1_id','instructor2_id'];
   return keys.some(k=>String(dbRow[k]??'')!==String(exp[k]??''));
@@ -1912,7 +1929,7 @@ function offRow(d){
   const T=v=>{const s=(v==null?'':String(v)).trim();return s===''?null:s;};
   return {source_id:d.id, course_id:_courseUuid(d.courseId),
     instructor1_id:_facIdByDisp(d.instructor1), instructor2_id:_facIdByDisp(d.instructor2),
-    term:d.term, days:T(d.days), time:T(d.time), modality:T(d.modality),
+    term:d.term, days:T(d.days), time:T(d.time), modality:T(d.modality), lms:(String(d.modality||'').trim()==='In-Person'?null:T(d.lms)),
     roomed:T(d.roomed), room_number:T(d.roomNumber), total_cap:I(d.totalCap), enrollment:I(d.enrollment),
     ohsu_cap1:I(d.ohsuCap1), ohsu_cap2:I(d.ohsuCap2), psu_cap1:I(d.psuCap1), psu_cap2:I(d.psuCap2),
     restrict_ohsu:T(d.restrictOhsu), restrict_psu:T(d.restrictPsu), psu_text:T(d.psuText),
@@ -1931,7 +1948,7 @@ function saveOff(){
   const nd=c.number2?`${c.number}/${c.number2}`:c.number;
   const data={id:eidO??genid(),term:val('om-term'),prefix:c.prefix,courseNumber:c.number,courseId:cid,
     fullName:`${c.prefix} - ${nd}: ${c.title}`,instructor1:val('om-i1'),instructor2:val('om-i2'),
-    i1Email:'',i2Email:'',days:val('om-days'),time:val('om-time'),modality:val('om-mod'),
+    i1Email:'',i2Email:'',days:val('om-days'),time:val('om-time'),modality:val('om-mod'),lms:(val('om-mod')==='In-Person'?'':val('om-lms')),
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:c.grugb||'GR',totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
     psuCap2:val('om-p2'),restrictOhsu:val('om-ro'),restrictPsu:val('om-rp'),psuText:val('om-pt'),adminNotes:val('om-notes'),
@@ -2163,10 +2180,10 @@ function triggerSave(){
 /* ─── CSV EXPORTS ───────────────────────────────────────────── */
 function expSched(){
   const term=val('f-term'),pfx=val('f-pfx');
-  const rows=[['Term','Prefix','Course','PSU CRN(s)','OHSU CRN(s)','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
+  const rows=[['Term','Prefix','Course','PSU CRN(s)','OHSU CRN(s)','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','LMS','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
   DB.offerings.filter(o=>(!term||o.term===term)&&(!pfx||o.prefix===pfx))
     .sort((a,b)=>(TO[a.term]-TO[b.term])||a.prefix.localeCompare(b.prefix))
-    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crnPsu??'',o.crnOhsu??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
+    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crnPsu??'',o.crnOhsu??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.lms,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
   dlCSV(rows,'SPH_Schedule_AY26-27.csv');
 }
 function expCht(){
@@ -2213,7 +2230,8 @@ async function openReport(){
     emails.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;sel.appendChild(o);});
   }catch(e){}
   $('rp-exself').checked=false;
-  $('rp-status').textContent='Pick a range and generate. Defaults to changes since your last report on this device.';
+  $('rp-prevay').checked=false;
+  $('rp-status').textContent='Pick a range and generate. Defaults to changes since your last report on this device, current AY and later.';
   openM('mo-report');
 }
 async function genReport(){
@@ -2236,7 +2254,22 @@ async function genReport(){
   // Optionally drop the current user's own edits from the report output.
   const exSelf=$('rp-exself').checked;
   if(exSelf&&currentUserEmail)rows=rows.filter(r=>r.actor_email!==currentUserEmail);
-  const rep=buildReportText(rows,fromStr,toStr||'(now)',actor,exSelf?currentUserEmail:null);
+  // AY scope: default to the header (current) AY and later. Map each change to
+  // its offering's term -> academic year via TERM_ROWS; unmapped terms (old or
+  // deleted AYs) are treated as previous and hidden unless "include" is checked.
+  const inclPrev=$('rp-prevay').checked;
+  if(!inclPrev){
+    const termAY={}; TERM_ROWS.forEach(t=>{termAY[t.code]=t.academic_year;});
+    const _i=AYS.indexOf(activeAY);
+    const laterAYs=new Set(_i>=0?AYS.slice(_i):AYS);
+    rows=rows.filter(r=>{
+      const t=(r.after&&r.after.term)||(r.before&&r.before.term)||'';
+      const ay=termAY[t];
+      return ay?laterAYs.has(ay):false;
+    });
+  }
+  const scopeNote=inclPrev?'All academic years':('Current AY and later — '+(activeAY||'—')+' onward');
+  const rep=buildReportText(rows,fromStr,toStr||'(now)',actor,exSelf?currentUserEmail:null,scopeNote);
   // Download as .txt
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([rep.text],{type:'text/plain;charset=utf-8'}));
@@ -2247,7 +2280,7 @@ async function genReport(){
 }
 // Field labels for human-readable diff lines (snapshot key → label).
 const RP_FIELDS=[['term','Term'],['instructor1','Instructor 1'],['instructor2','Instructor 2'],
-  ['days','Days'],['time','Time'],['modality','Modality'],['roomed','Where Roomed'],
+  ['days','Days'],['time','Time'],['modality','Modality'],['lms','LMS'],['roomed','Where Roomed'],
   ['roomNumber','Room #'],['totalCap','Total Cap'],
   ['crnPsu','PSU CRN(s)'],['crnOhsu','OHSU CRN(s)'],['printStatus','Print'],['ohsuCap1','OHSU Cap 1'],['ohsuCap2','OHSU Cap 2'],
   ['psuCap1','PSU Cap 1'],['psuCap2','PSU Cap 2'],['restrictOhsu','Restrict OHSU'],
@@ -2258,7 +2291,7 @@ function _fmtTs(iso){
   const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
 }
-function buildReportText(rows,from,to,actor,exSelfEmail){
+function buildReportText(rows,from,to,actor,exSelfEmail,scopeNote){
   // Net-zero field suppression (update rows only): for each offering, if a
   // field's value in the EARLIEST update's `before` equals its value in the
   // LATEST update's `after`, the field netted to no change over the window —
@@ -2282,6 +2315,7 @@ function buildReportText(rows,from,to,actor,exSelfEmail){
   L.push('Range: '+from+'  →  '+to);
   if(actor)L.push('Editor: '+actor);
   if(exSelfEmail)L.push('Excluding edits by: '+exSelfEmail);
+  if(scopeNote)L.push('Scope: '+scopeNote);
   L.push('Generated: '+_fmtTs(new Date().toISOString()));
   L.push('='.repeat(60));
   L.push('');
@@ -2361,6 +2395,11 @@ const LISTS={
       try{renderCht();}catch(e){}
       try{renderCat();}catch(e){}
     }
+  },
+  lms:{
+    label:'LMS (offering modal)',
+    defaults:['Brightspace','Sakai','Canvas'],
+    apply(){populateSelect('om-lms',getList('lms'),true);}
   }
 };
 // Live prefix list (falls back to PROGS defaults) for reports and aggregation.
@@ -2483,6 +2522,7 @@ function wireEvents(){
   $('sched-tb').addEventListener('click',e=>{const b=e.target.closest('.eo');if(b)openOM(b.dataset.id);});
   // Offering modal
   $('om-term').addEventListener('change', togglePotRow);
+  $('om-mod').addEventListener('change', toggleLmsField);
   $('om-pot').addEventListener('change',()=>{
     const isOther = val('om-pot')==='other';
     $('om-pot-other').style.display = isOther ? '' : 'none';
@@ -2504,6 +2544,7 @@ function wireEvents(){
     renderAll();
   });
   $('g-pfx').addEventListener('change',renderGantt);
+  $('g-level').addEventListener('change',renderGantt);
   $('gantt-wrap').addEventListener('click',e=>{const b=e.target.closest('.gbar');if(b&&canEdit())openOM(b.dataset.id);});
   $('btn-oc-report').addEventListener('click',generateOnCampusReport);
   // CHTool
