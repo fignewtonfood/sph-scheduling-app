@@ -560,13 +560,36 @@ const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
    storage writes, session forgotten when the tab closes. The choice itself is
    the one thing we DO persist (a single tiny flag), so the checkbox remembers
    its state; flip it off and the flag is removed. */
-const PERSIST_FLAG='sph_persist';
+/* v2 key. The v1 flag ('sph_persist') is deliberately abandoned rather than
+   migrated. The old auth bar shipped a "Remember me" checkbox that rendered
+   ALREADY CHECKED — persistence is the default, so wantPersist() was true and
+   the box reflected it. Clicking it, the intuitive gesture for "yes, remember
+   me", therefore UNCHECKED it and wrote '0', downgrading the user to an
+   in-memory session that died with the tab. The flag is sticky, so everyone who
+   touched it has been re-signing-in on every browser restart since. Bumping the
+   key resets the entire population to persist-on without walking anyone through
+   clearing site data. The control below is also inverted so the safe state now
+   requires no action. */
+const PERSIST_FLAG='sph_persist_v2';
+const PERSIST_FLAG_LEGACY='sph_persist';
 function wantPersist(){
-  try{return localStorage.getItem(PERSIST_FLAG)!=='0';}catch(e){return true;}
+  try{
+    localStorage.removeItem(PERSIST_FLAG_LEGACY);   // one-time cleanup
+    return localStorage.getItem(PERSIST_FLAG)!=='0';
+  }catch(e){return true;}
 }
 let sb=null;
+let authSub=null;      // live onAuthStateChange subscription (per client)
+let onAuthChange=null; // handler installed by bootstrap, survives rebuilds
 function initSupabase(){
   const persist=wantPersist();
+  // A rebuilt client is a NEW auth emitter. Registering the listener once at
+  // boot meant any rebuild left it wired to the discarded client, so a
+  // magic-link return afterwards never fired refreshAdmin() and the user
+  // landed signed-in-but-read-only until a manual reload. Own the
+  // subscription lifecycle here instead.
+  try{ if(authSub&&authSub.unsubscribe)authSub.unsubscribe(); }catch(e){}
+  authSub=null;
   sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
     auth:{
       persistSession:persist,
@@ -575,6 +598,10 @@ function initSupabase(){
       storageKey:'sph_auth'
     }
   });
+  if(onAuthChange){
+    const {data}=sb.auth.onAuthStateChange((evt,session)=>onAuthChange(evt,session));
+    authSub=(data&&data.subscription)||null;
+  }
   return sb;
 }
 
@@ -2666,13 +2693,29 @@ async function signOut(){
   renderAll();                  // repaint: notes tooltips are gated on signedIn
   setSS('Signed out');
 }
-function setPersist(on){
+async function setPersist(on){
   try{
     if(on)localStorage.removeItem(PERSIST_FLAG);
     else localStorage.setItem(PERSIST_FLAG,'0');
   }catch(e){}
-  // Re-create the client under the new persistence mode for subsequent logins.
+  // Rebuilding the client mid-session strands the live session in the old
+  // client's memory: storage still holds it, the new client hasn't read it,
+  // and the UI keeps looking signed in until the next reload — at which point
+  // the user silently isn't. Only rebuild when there is nothing to strand;
+  // otherwise the preference is recorded and applies at the next sign-in.
+  let hasSession=false;
+  try{
+    const {data}=await sb.auth.getSession();
+    hasSession=!!(data&&data.session);
+  }catch(e){}
+  if(hasSession){
+    setSS(on?'● You will stay signed in on this device'
+            :'● Saved — applies at your next sign-in (or sign out now)');
+    return;
+  }
   initSupabase();
+  setSS(on?'● You will stay signed in on this device'
+          :'● This device will not keep you signed in');
 }
 
 /* Auth bar — mounted inline in the header (see #auth-slot). Inner element
@@ -2686,15 +2729,17 @@ function buildAuthBar(){
     +'<input id="ab-email" type="email" placeholder="you@ohsu.edu" '
     +'style="width:150px;padding:3px 7px;border:1px solid rgba(255,255,255,.3);border-radius:5px;font-size:12px;background:#fff;color:#1E293B">'
     +'<button id="ab-signin" class="btn btn-s" style="font-size:11px;padding:4px 10px">Sign in</button>'
-    +'<label title="Keep me signed in on this device" style="display:inline-flex;align-items:center;gap:4px;color:#CBD5E1;font-size:11px;white-space:nowrap;cursor:pointer">'
-    +'<input id="ab-persist" type="checkbox" style="margin:0;cursor:pointer">Remember me</label>'
+    +'<label title="Check this on a shared or public computer — your session will not be kept after you close the browser" style="display:inline-flex;align-items:center;gap:4px;color:#CBD5E1;font-size:11px;white-space:nowrap;cursor:pointer">'
+    +'<input id="ab-shared" type="checkbox" style="margin:0;cursor:pointer">Shared computer</label>'
     +'</span>'
     +'<span id="ab-in" style="display:none;align-items:center;gap:6px">'
     +'<span id="ab-who" style="color:#CBD5E1;font-size:12px;white-space:nowrap"></span>'
     +'<button id="ab-signout" class="btn btn-s" style="font-size:11px;padding:4px 10px">Sign out</button>'
     +'</span>';
-  $('ab-persist').checked=wantPersist();
-  $('ab-persist').addEventListener('change',e=>setPersist(e.target.checked));
+  // Inverted: CHECKED now means "do not keep me signed in". Staying signed in
+  // is the default and requires no click, so the old misclick is impossible.
+  $('ab-shared').checked=!wantPersist();
+  $('ab-shared').addEventListener('change',e=>setPersist(!e.target.checked));
   $('ab-signin').addEventListener('click',()=>signInEmail(val('ab-email').trim()));
   $('ab-email').addEventListener('keydown',e=>{if(e.key==='Enter')signInEmail(val('ab-email').trim());});
   $('ab-signout').addEventListener('click',signOut);
@@ -2712,12 +2757,13 @@ function updateAuthBar(user,admin){
 
 /* ─── BOOTSTRAP ─────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded',async()=>{
-  console.log('%c[SPH scheduling] build 2026-07-28b — paginated load','color:#0a7');
+  console.log('%c[SPH scheduling] build 2026-07-30a — session persistence fix','color:#0a7');
   wireEvents();
+  // Install the handler before the first client is built; initSupabase() now
+  // owns (re)registration, so this survives every subsequent rebuild.
+  onAuthChange=(_evt,_session)=>{refreshAdmin();};
   initSupabase();
   buildAuthBar();
-  // React to auth changes (magic-link return, sign-out, token refresh).
-  sb.auth.onAuthStateChange((_evt,_session)=>{refreshAdmin();});
   try{
     await loadData();
   }catch(e){

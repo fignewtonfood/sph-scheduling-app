@@ -401,15 +401,35 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
 const SUPABASE_URL      = 'https://igusxvvnzdpoqwizcvke.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable__F-QsLesM18cKEozFSly6g_t8dSlptY';
 
-const PERSIST_FLAG='sph_persist';
-function wantPersist(){try{return localStorage.getItem(PERSIST_FLAG)!=='0';}catch(e){return true;}}
+/* Must track index.html exactly: both apps share this flag AND storageKey
+   'sph_auth' on one origin, so a mismatch would have the two disagreeing about
+   whether the session survives the browser closing. See the long note in
+   index.html for why v1 was abandoned rather than migrated. This app has no
+   persistence checkbox of its own — it inherits whatever the scheduling app's
+   auth bar set. */
+const PERSIST_FLAG='sph_persist_v2';
+const PERSIST_FLAG_LEGACY='sph_persist';
+function wantPersist(){
+  try{
+    localStorage.removeItem(PERSIST_FLAG_LEGACY);   // one-time cleanup
+    return localStorage.getItem(PERSIST_FLAG)!=='0';
+  }catch(e){return true;}
+}
 let sb=null;
+let authSub=null;      // live onAuthStateChange subscription (per client)
+let onAuthChange=null; // handler installed by boot, survives rebuilds
 function initSupabase(){
   const persist=wantPersist();
+  try{ if(authSub&&authSub.unsubscribe)authSub.unsubscribe(); }catch(e){}
+  authSub=null;
   sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
     auth:{persistSession:persist,autoRefreshToken:persist,
           storage:persist?window.localStorage:undefined,storageKey:'sph_auth'}
   });
+  if(onAuthChange){
+    const {data}=sb.auth.onAuthStateChange((evt,session)=>onAuthChange(evt,session));
+    authSub=(data&&data.subscription)||null;
+  }
   return sb;
 }
 
@@ -1392,12 +1412,15 @@ function wire(){
 
 /* ─── BOOT ─────────────────────────────────────────────────── */
 (async function boot(){
-  console.log('%c[SPH faculty] build 2026-07-28b — paginated load','color:#0a7');
+  console.log('%c[SPH faculty] build 2026-07-30a — session persistence fix','color:#0a7');
   wire();
+  // A magic-link return lands here with tokens in the hash; the subscription
+  // registered inside initSupabase() gives Supabase a beat to consume them
+  // before we ask which tier we're in. The handler is a no-op here (this app
+  // decides its tier once, in loadData) but the subscription itself is what
+  // drives token consumption, so it must exist.
+  onAuthChange=()=>{};
   initSupabase();
-  // A magic-link return lands here with tokens in the hash; give Supabase a
-  // beat to consume them before we ask which tier we're in.
-  sb.auth.onAuthStateChange(()=>{});
   try{
     await loadData();
   }catch(e){
