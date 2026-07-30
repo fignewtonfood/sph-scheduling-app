@@ -445,7 +445,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>Last Name</label><input id="im-last"></div>
       <div><label>First Name</label><input id="im-first"></div>
       <div class="s2"><label>Display Name</label><input id="im-dn"><div class="fhint">Auto: Last F. — extended if duplicate: Last Fi., Last Fir.</div></div>
-      <div><label>Category</label><select id="im-cat"><option>OHSU Primary</option><option>OHSU Adjunct</option><option>NPS</option><option>PSU TTF</option><option>PSU NTTF</option><option>PSU Adjunct</option><option>Staff</option><option>Other</option><option>TBD</option></select></div>
+      <div><label>Category</label><select id="im-cat"><option value="">— Select —</option><option>OHSU Primary</option><option>OHSU Adjunct</option><option>NPS</option><option>PSU TTF</option><option>PSU NTTF</option><option>PSU Adjunct</option><option>Staff</option><option>Other</option><option>TBD</option></select></div>
       <div class="s2"><label>Email</label><input id="im-email" type="email"></div>
       <div class="s2"><label>Email 2 / OHSU Email</label><input id="im-email2" type="email"></div>
       <div><label>EID</label><input id="im-eid"></div>
@@ -2119,7 +2119,7 @@ function openIM(id){
     setv('im-last',i.lastName);setv('im-first',i.firstName);setv('im-dn',i.displayName);
     setv('im-cat',i.category);setv('im-email',i.email);
     setv('im-email2',i.email2??'');setv('im-eid',i.eid??'');
-  }else{['im-last','im-first','im-dn','im-email','im-email2','im-eid'].forEach(f=>setv(f,''));}
+  }else{['im-last','im-first','im-dn','im-email','im-email2','im-eid','im-cat'].forEach(f=>setv(f,''));}
   // Name/email/EID live in the shared faculty record (faculty app owns them).
   // Editing existing → those are read-only here; only category + role persist.
   // Adding new → name + email feed the create_instructor RPC; email2/EID are
@@ -2158,7 +2158,7 @@ function saveInst(){
     const doCreate=async()=>{
       setSS('Adding instructor…');
       const {data:newId,error}=await sb.rpc('create_instructor',
-        {p_first:first,p_last:last,p_email:email,p_fte_category:cat,p_role:role});
+        {p_first:first,p_last:last,p_email:email,p_fte_category:cat||null,p_role:role});
       if(error){setSS('⚠ Not added: '+error.message);return;}
       const dn=val('im-dn').trim()||(first?`${last} ${first[0]}.`:last);
       DB.instructors.push({id:newId,facultyId:newId,lastName:last,firstName:first,displayName:dn,
