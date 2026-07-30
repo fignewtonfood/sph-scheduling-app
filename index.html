@@ -390,7 +390,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>PSU CRN(s)</label><input id="om-crn-psu" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">PSU registration number(s) — separate multiple with commas</div></div>
       <div><label>OHSU CRN(s)</label><input id="om-crn-ohsu" inputmode="numeric" placeholder="e.g. 41234, 41235"><div class="fhint">OHSU registration number(s) — separate multiple with commas</div></div>
       <div><label>Total Cap</label><input id="om-cap" type="number"></div>
-      <div><label>Enrollment (actual)</label><input id="om-enroll" type="number"><div class="fhint">Fill on Day 1 of term</div></div>
+      <div><label>Enrollment (actual)</label><input id="om-enroll" type="number" min="0" step="1"><div class="fhint">Fill on Day 1 of term</div></div>
       <div><label>OHSU Cap 1</label><input id="om-o1" type="number"></div>
       <div><label>OHSU Cap 2</label><input id="om-o2" type="number"></div>
       <div><label>PSU Cap 1</label><input id="om-p1" type="number"></div>
@@ -938,6 +938,17 @@ function handleOfferingDeepLink(){
   history.replaceState({},'',u);
   if(!off){setSS('⚠ That offering no longer exists');return;}
 
+  // The offering may belong to a prior academic year. renderSched() draws only
+  // the active AY's terms, so without switching first the row is never in the
+  // DOM and the scroll below finds nothing — which is exactly how a current-AY
+  // link worked and an older one silently didn't.
+  const trow=termRow(off.term);
+  if(trow&&trow.academic_year&&trow.academic_year!==activeAY){
+    activeAY=trow.academic_year;
+    applyAY();          // recompute TERMS/TL/TO/TC for the offering's year
+    rebuildTermUI();    // repoint the AY picker and term dropdowns
+  }
+
   switchView('schedule');
   ['f-term','f-pfx','f-mod','f-level','f-q'].forEach(id=>{const e=$(id);if(e)e.value='';});
   const inc=$('f-incomplete');if(inc)inc.checked=false;
@@ -1281,7 +1292,7 @@ function renderSched(){
       <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality,o.lms)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
-      <td><input type="number" class="enr ei" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
+      <td><input type="number" class="enr ei" min="0" step="1" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
       ${eb}
     </tr>`;
   });
@@ -1290,6 +1301,15 @@ function renderSched(){
 function sortSched(col){if(sortCol===col)sortDir*=-1;else{sortCol=col;sortDir=1;}renderSched();}
 function updateEnroll(id,v){
   const o=DB.offerings.find(x=>x.id===id);if(!o)return;
+  // Enrollment is a headcount — negatives are always a typo. Revert the field
+  // to the stored value rather than clamping to 0, which is itself meaningful
+  // ("nobody enrolled") and would quietly record something the user didn't say.
+  if(isNegative(v)){
+    const el=document.querySelector(`#sched-tb .ei[data-id="${CSS.escape(String(id))}"]`);
+    if(el)el.value=o.enrollment??'';
+    setSS('⚠ Enrollment cannot be negative');
+    return;
+  }
   if(String(o.enrollment??'')===String(v??''))return;   // no-op guard: don't log unchanged
   const before=snapOff(o);
   o.enrollment=v;                       // optimistic local update
@@ -1942,9 +1962,14 @@ function offRow(d){
 const _crnList=v=>String(v??'').replace(/[^0-9,\s]/g,'').split(',')
   .map(x=>x.trim()).filter(Boolean).join(', ');
 
+/* Blank and non-numeric are someone else's problem (they parse to null on the
+   way to the DB); this only answers "did the user type a minus sign". */
+const isNegative=v=>{const s=String(v??'').trim();return s!==''&&parseFloat(s)<0;};
+
 function saveOff(){
   const cid=val('om-course');const c=DB.courses.find(x=>x.id===cid);
   if(!cid||!c){alert('Please select a course.');return;}
+  if(isNegative(val('om-enroll'))){alert('Enrollment cannot be negative.');$('om-enroll').focus();return;}
   const nd=c.number2?`${c.number}/${c.number2}`:c.number;
   const data={id:eidO??genid(),term:val('om-term'),prefix:c.prefix,courseNumber:c.number,courseId:cid,
     fullName:`${c.prefix} - ${nd}: ${c.title}`,instructor1:val('om-i1'),instructor2:val('om-i2'),

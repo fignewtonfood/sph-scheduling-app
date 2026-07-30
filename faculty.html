@@ -1068,7 +1068,12 @@ async function saveFac(){
   row.is_administrator=$('fm-admin').checked;
   if(!row.is_program_director)row.program_director_detail=null;
   if(!row.is_administrator)row.administrator_detail=null;
-  const cats=chosenCats();
+  // An uncategorized person is invisible to every view that filters by
+  // category, so a new record with nothing ticked would vanish on save.
+  // Inactive is the honest default: present, findable, not on the public site.
+  // Deliberate on an EXISTING record is a different act, so edits are left alone.
+  let cats=chosenCats();
+  if(!eid&&!cats.length)cats=['Inactive'];
   const before=eid?snap(FAC.find(x=>String(x.id)===String(eid))):null;
 
   if(eid){
