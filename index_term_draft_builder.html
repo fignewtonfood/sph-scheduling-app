@@ -405,7 +405,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
               <div>
                 <h3>3 · Pair reference-term groups against the target term's offerings</h3>
-                <p class="tdb-sub">Nothing pairs automatically. Each row shows a suggested match by course number — confirm it, pick a different offering, or mark it new/discontinued yourself.</p>
+                <p class="tdb-sub">Nothing pairs automatically. Each row shows a suggested match by course number — confirm it, pick a different offering, or mark it discontinued if nothing in the target term corresponds to it.</p>
               </div>
               <button class="btn btn-p btn-sm" id="tdb-lock-btn" style="white-space:nowrap">🔒 Lock pairing set</button>
             </div>
@@ -425,8 +425,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
           </section>
 
           <section class="tdb-card" id="tdb-unmatched-card" style="display:none">
-            <h3>Target offerings with no reference-term match</h3>
-            <p class="tdb-sub">Nothing in the reference term's Cognos data lined up with these — most likely brand-new sections for this draft.</p>
+            <h3>4 · Confirm this term's new offerings</h3>
+            <p class="tdb-sub">Nothing in the reference term's Cognos data lined up with these — most look like brand-new sections. Confirm each one so it's accounted for; this doesn't change anything in the schedule itself, it just marks the review as done.</p>
             <div id="tdb-unmatched-list"></div>
           </section>
 
@@ -2905,7 +2905,8 @@ const TDB = {
   allowedPrefixes:new Set(),
   allowedInit:false,
   dismissed:new Set(),      // xlist codes marked "not ours" this session
-  pairings:{},              // group.key -> offering _uuid | 'ADD' | 'DELETE'
+  pairings:{},              // group.key -> offering _uuid | 'DELETE'
+  addConfirmed:new Set(),   // offering _uuid's explicitly confirmed as "new this term" from the unmatched list
   groups:[],
   termsPopulated:false,
   locked:false, lockedAt:null
@@ -2918,6 +2919,52 @@ const tdbNorm=v=>(v===undefined||v===null)?'':String(v).trim();
 const tdbNormH=v=>tdbNorm(v).toLowerCase().replace(/\s+/g,' ');
 const tdbClassPrefix=cls=>{const c=tdbNorm(cls);return c?c.split(' ')[0].toUpperCase():'';};
 const tdbClassNumber=cls=>{const c=tdbNorm(cls).split(' ');return c.length>1?c[1]:'';};
+/* ── meeting-pattern classification ──────────────────────────────
+   Reference Times ("MW 1745-2015") and target days/time ("M, W" + "1745-2015")
+   use different day-separator conventions, and both sides represent "no fixed
+   meeting" a bunch of different ways (blank, "ARR", "By Arrangement",
+   "Instructor Arranged", "TBA") and "online" a bunch of different ways
+   (blank schedule + Locations="WEB", or modality="Online (async/sync)").
+   Comparing the raw text literally flags all of that as a change. Classify
+   into {online} / {arranged} / {scheduled, days, time} instead, and only
+   treat it as a real diff when the classification or the schedule itself
+   differs — never on wording alone. */
+const tdbDayOrder=['M','T','W','R','F','S','U'];
+const tdbArrangedRe=/^(arr|arng|arrng|arranged|by arrangement|instructor arranged|tba|n\/a)?$/i;
+const tdbOnlineRe=/\b(web|online|async|asynchronous|remote)\b/i;
+function tdbDayLetters(tok){
+  const letters=new Set();
+  tdbNorm(tok).toUpperCase().replace(/[^A-Z]/g,'').split('').forEach(ch=>{ if(tdbDayOrder.includes(ch))letters.add(ch); });
+  return tdbDayOrder.filter(d=>letters.has(d)).join('');
+}
+function tdbSplitRefMeeting(raw){
+  const s=tdbNorm(raw);
+  if(!s)return {dayTok:'',timeTok:''};
+  const parts=s.split(/\s+/);
+  const first=parts[0]||'';
+  if(/^[MTWRFSUmtwrfsu]{1,3}$/.test(first))return {dayTok:first,timeTok:parts.slice(1).join(' ')};
+  return {dayTok:'',timeTok:s};
+}
+function tdbClassifyRef(row){
+  if(tdbOnlineRe.test(tdbNorm(row.Locations))||tdbOnlineRe.test(tdbNorm(row.Times)))return {kind:'online'};
+  const {dayTok,timeTok}=tdbSplitRefMeeting(row.Times);
+  const days=tdbDayLetters(dayTok);
+  if(!days&&(!timeTok.trim()||tdbArrangedRe.test(timeTok.trim())))return {kind:'arranged'};
+  return {kind:'scheduled',days,time:tdbNormMeet(timeTok||dayTok)};
+}
+function tdbClassifyOffering(o){
+  if(o.modality==='Online (async)'||o.modality==='Online (sync)')return {kind:'online'};
+  const days=tdbDayLetters(o.days);
+  const timeTok=tdbNorm(o.time);
+  if(!days&&(!timeTok||tdbArrangedRe.test(timeTok)))return {kind:'arranged'};
+  return {kind:'scheduled',days,time:tdbNormMeet(timeTok)};
+}
+function tdbMeetingsMatch(refRow,offering){
+  const a=tdbClassifyRef(refRow), b=tdbClassifyOffering(offering);
+  if(a.kind!==b.kind)return false;
+  if(a.kind==='scheduled')return a.days===b.days&&a.time===b.time;
+  return true; // both online, or both arranged/no-fixed-schedule — equivalent regardless of exact wording
+}
 /* For comparing free-text meeting patterns where only formatting differs
    (trailing space, case) — not for display, which keeps the original text. */
 const tdbNormMeet=s=>tdbNorm(s).toLowerCase().replace(/\s+/g,'');
@@ -3053,25 +3100,38 @@ function tdbTargetOfferings(){
   return DB.offerings.filter(o=>o.term===TDB.targetTerm).map(o=>{
     const c=courseById[o.courseId]||{};
     return Object.assign({}, o, {number2:c.number2||''});
+  }).sort((a,b)=>{
+    if(a.prefix!==b.prefix)return (a.prefix||'').localeCompare(b.prefix||'');
+    const c=tdbNatCompare(a.courseNumber,b.courseNumber);
+    if(c!==0)return c;
+    return tdbNatCompare(a.number2||'',b.number2||'');
   });
 }
 
 /* Suggestion only — never auto-applied. Scores an offering against a group by
    how many of the group's non-SOPH course numbers match the offering's
-   number/number2, then breaks ties on instructor-name overlap. */
+   number/number2, whether their meeting-pattern class (online/arranged/
+   scheduled) agrees, and instructor-name overlap. Courses with multiple
+   sections (e.g. several PE 124 CRNs) produce several candidate offerings
+   with the same course number — skipping offerings another group has already
+   been confirmed against keeps those sections from colliding on one suggestion. */
 function tdbSuggestMatch(group, offerings){
   const psuRows=group.rows.filter(r=>tdbClassPrefix(r.Class)!=='SOPH');
   if(psuRows.length===0||offerings.length===0)return null;
   const nums=new Set(psuRows.map(r=>tdbClassNumber(r.Class)));
   const prefix=tdbClassPrefix(psuRows[0].Class);
   const instr=tdbNorm(psuRows[0]['Prim Instructor']).toLowerCase();
+  const refKind=tdbClassifyRef(psuRows[0]).kind;
+  const claimed=new Set(Object.entries(TDB.pairings).filter(([k])=>k!==group.key).map(([,v])=>v));
   let best=null,bestScore=0;
   offerings.forEach(o=>{
     if((o.prefix||'').toUpperCase()!==prefix)return;
+    if(claimed.has(o._uuid))return; // already confirmed against a different group this session
     let score=0;
     if(nums.has(o.courseNumber))score+=2;
     if(o.number2&&nums.has(o.number2))score+=2;
     if(score===0)return;
+    if(tdbClassifyOffering(o).kind===refKind)score+=2;
     const oi=(tdbNorm(o.instructor1)+' '+tdbNorm(o.instructor2)).toLowerCase();
     if(instr&&oi.includes(instr.split(' ').pop()))score+=1;
     if(score>bestScore){bestScore=score;best=o;}
@@ -3104,19 +3164,24 @@ function tdbDiffChips(group, offering){
       ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgtInstr)}</span>`
       : `<span class="tdb-diff-chip tdb-diff-changed">${esc(refInstr||'—')}→${esc(tgtInstr||'—')}</span>`);
   }
-  const refMeet=tdbNorm(group.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')?.Times);
+  const refRow=group.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')||{};
+  const refMeet=tdbNorm(refRow.Times);
   const tgtMeet=[offering.days,offering.time].filter(Boolean).join(' ');
-  if(refMeet||tgtMeet){
-    const same=tdbNormMeet(refMeet)===tdbNormMeet(tgtMeet);
+  if(refMeet||tgtMeet||tdbClassifyOffering(offering).kind==='online'||tdbClassifyRef(refRow).kind==='online'){
+    const same=tdbMeetingsMatch(refRow,offering);
     chips.push(same
-      ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgtMeet||'ARRNGD')}</span>`
-      : `<span class="tdb-diff-chip tdb-diff-changed">${esc(refMeet||'—')}→${esc(tgtMeet||'ARRNGD')}</span>`);
+      ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgtMeet||offering.modality||'ARRNGD')}</span>`
+      : `<span class="tdb-diff-chip tdb-diff-changed">${esc(refMeet||'—')}→${esc(tgtMeet||offering.modality||'ARRNGD')}</span>`);
   }
   return chips.join('');
 }
 
-function tdbPendingCount(groups){
-  return groups.filter(g=>!TDB.pairings[g.key]).length;
+function tdbPendingCount(groups,offerings){
+  const refPending=groups.filter(g=>!TDB.pairings[g.key]).length;
+  if(!offerings)return refPending;
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
+  const addPending=offerings.filter(o=>!claimed.has(o._uuid)&&!TDB.addConfirmed.has(o._uuid)).length;
+  return refPending+addPending;
 }
 
 /* ─── rendering ─── */
@@ -3174,13 +3239,17 @@ function tdbRenderStats(groups,offerings){
   wrap.style.display='';
   const totalRaw=TDB.files.reduce((s,f)=>s+f.rawRows.length,0);
   const anomalies=groups.filter(g=>g.anomaly).length;
-  const confirmed=Object.keys(TDB.pairings).filter(k=>TDB.pairings[k]&&TDB.pairings[k]!=='').length;
+  const confirmed=Object.keys(TDB.pairings).filter(k=>TDB.pairings[k]).length;
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
+  const unmatchedOfferings=offerings.filter(o=>!claimed.has(o._uuid));
+  const addsConfirmed=unmatchedOfferings.filter(o=>TDB.addConfirmed.has(o._uuid)).length;
   wrap.innerHTML=`
     <div class="tdb-stat"><div class="n">${totalRaw}</div><div class="l">Raw reference rows</div></div>
     <div class="tdb-stat"><div class="n">${groups.length}</div><div class="l">Reference groups (scope-filtered)</div></div>
     <div class="tdb-stat"><div class="n">${offerings.length}</div><div class="l">Target-term offerings</div></div>
     <div class="tdb-stat ${anomalies?'warn':''}"><div class="n">${anomalies}</div><div class="l">One-sided crosslist flags</div></div>
-    <div class="tdb-stat"><div class="n">${confirmed}/${groups.length}</div><div class="l">Groups paired</div></div>
+    <div class="tdb-stat"><div class="n">${confirmed}/${groups.length}</div><div class="l">Groups paired/deleted</div></div>
+    <div class="tdb-stat"><div class="n">${addsConfirmed}/${unmatchedOfferings.length}</div><div class="l">New offerings confirmed</div></div>
   `;
 }
 
@@ -3230,10 +3299,11 @@ function tdbRenderLockBanner(groups){
 }
 
 function tdbLock(){
-  const pending=tdbPendingCount(TDB.groups);
+  const offerings=tdbTargetOfferings();
+  const pending=tdbPendingCount(TDB.groups,offerings);
   const doLock=()=>{ TDB.locked=true; TDB.lockedAt=new Date().toLocaleString(); tdbRenderAll(); tdbRenderFileList(); tdbRenderPrefixGrid(); };
   if(pending>0){
-    showCfm('Lock with pending groups?', `${pending} of ${TDB.groups.length} groups still have no decision (add / delete / matched). You can unlock later to keep editing. Lock anyway?`, doLock);
+    showCfm('Lock with pending items?', `${pending} item${pending===1?'':'s'} still need a decision — a reference group with no match/delete choice, or a target offering not yet confirmed as new. You can unlock later to keep editing. Lock anyway?`, doLock);
   }else{
     doLock();
   }
@@ -3256,20 +3326,20 @@ function tdbRenderPairTable(groups,offerings){
         ${g.gcl!==null?`<div class="gcl">GCL ${g.gcl}</div>`:''}
       </div>`;
 
+    const claimedElsewhere=new Set(Object.entries(TDB.pairings).filter(([k,v])=>k!==g.key&&v&&v!=='DELETE').map(([,v])=>v));
     const options=[`<option value="">— not linked yet —</option>`,
-      `<option value="ADD" ${current==='ADD'?'selected':''}>New this term (Add)</option>`,
       `<option value="DELETE" ${current==='DELETE'?'selected':''}>Not continuing (Delete)</option>`]
-      .concat(offerings.map(o=>`<option value="${o._uuid}" ${current===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}</option>`));
+      .concat(offerings.map(o=>`<option value="${o._uuid}" ${current===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}${claimedElsewhere.has(o._uuid)?' — ⚠ also matched elsewhere':''}</option>`));
 
-    const matchedOffering = current && current!=='ADD' && current!=='DELETE'
+    const matchedOffering = current && current!=='DELETE'
       ? offerings.find(o=>o._uuid===current) : null;
 
     const suggestHtml = (suggestion&&!TDB.locked)
       ? `<button class="btn btn-s" style="font-size:11px;padding:3px 8px;margin-top:6px" data-key="${esc(g.key)}" data-off="${suggestion._uuid}">Use suggested: ${esc(tdbOfferingLabel(suggestion))}</button>`
       : '';
 
-    const statusClass = current==='ADD'?'add':current==='DELETE'?'delete':current?'confirmed':'pending';
-    const statusText = current==='ADD'?'Add':current==='DELETE'?'Delete':current?'Confirmed':'Pending';
+    const statusClass = current==='DELETE'?'delete':current?'confirmed':'pending';
+    const statusText = current==='DELETE'?'Delete':current?'Confirmed':'Pending';
 
     tr.innerHTML=`
       <td>${refHtml}</td>
@@ -3297,11 +3367,25 @@ function tdbRenderPairTable(groups,offerings){
 function tdbRenderUnmatched(groups,offerings){
   const card=$('tdb-unmatched-card'), list=$('tdb-unmatched-list');
   if(!TDB.targetTerm||offerings.length===0){card.style.display='none';return;}
-  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='ADD'&&v!=='DELETE'));
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
   const unmatched=offerings.filter(o=>!claimed.has(o._uuid));
   if(unmatched.length===0){card.style.display='none';return;}
   card.style.display='';
-  list.innerHTML=unmatched.map(o=>`<div class="tdb-unmatched-item"><span>${esc(tdbOfferingLabel(o))}</span><span style="color:var(--dgray)">no reference-term match yet</span></div>`).join('');
+  list.innerHTML='';
+  unmatched.forEach(o=>{
+    const isConfirmed=TDB.addConfirmed.has(o._uuid);
+    const div=document.createElement('div'); div.className='tdb-unmatched-item';
+    div.innerHTML=`<span>${esc(tdbOfferingLabel(o))}</span>
+      ${isConfirmed
+        ? `<span style="display:flex;gap:8px;align-items:center"><span class="tdb-status add">✓ Confirmed new</span>${TDB.locked?'':'<button class=\"btn btn-s btn-sm\" data-undo=\"'+o._uuid+'\">Undo</button>'}</span>`
+        : `<span style="display:flex;gap:8px;align-items:center"><span style="color:var(--dgray)">no reference-term match</span><button class="btn btn-p btn-sm" data-confirm="${o._uuid}" ${TDB.locked?'disabled':''}>Confirm — new this term</button></span>`}
+    `;
+    const cBtn=div.querySelector('button[data-confirm]');
+    if(cBtn)cBtn.addEventListener('click',e=>{ TDB.addConfirmed.add(e.target.dataset.confirm); tdbRenderAll(); });
+    const uBtn=div.querySelector('button[data-undo]');
+    if(uBtn)uBtn.addEventListener('click',e=>{ TDB.addConfirmed.delete(e.target.dataset.undo); tdbRenderAll(); });
+    list.appendChild(div);
+  });
 }
 
 function tdbRenderAll(){
