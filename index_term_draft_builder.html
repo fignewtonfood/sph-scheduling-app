@@ -2930,7 +2930,11 @@ const tdbClassNumber=cls=>{const c=tdbNorm(cls).split(' ');return c.length>1?c[1
    treat it as a real diff when the classification or the schedule itself
    differs — never on wording alone. */
 const tdbDayOrder=['M','T','W','R','F','S','U'];
-const tdbArrangedRe=/^(arr|arng|arrng|arranged|by arrangement|instructor arranged|tba|n\/a)?$/i;
+/* Real scheduled meetings have a numeric time range (e.g. "1745-2015", "0900-0950").
+   Rather than whitelist every phrasing of "no fixed schedule" (which missed "TBD",
+   "ARR.", anything with trailing punctuation...), treat the ABSENCE of a real time
+   range as the signal — much harder to miss a real one than to guess every fake one. */
+const tdbTimeRangeRe=/\d{3,4}\s*-\s*\d{3,4}/;
 const tdbOnlineRe=/\b(web|online|async|asynchronous|remote)\b/i;
 function tdbDayLetters(tok){
   const letters=new Set();
@@ -2949,21 +2953,51 @@ function tdbClassifyRef(row){
   if(tdbOnlineRe.test(tdbNorm(row.Locations))||tdbOnlineRe.test(tdbNorm(row.Times)))return {kind:'online'};
   const {dayTok,timeTok}=tdbSplitRefMeeting(row.Times);
   const days=tdbDayLetters(dayTok);
-  if(!days&&(!timeTok.trim()||tdbArrangedRe.test(timeTok.trim())))return {kind:'arranged'};
+  if(!days&&!tdbTimeRangeRe.test(timeTok))return {kind:'arranged'};
   return {kind:'scheduled',days,time:tdbNormMeet(timeTok||dayTok)};
 }
 function tdbClassifyOffering(o){
   if(o.modality==='Online (async)'||o.modality==='Online (sync)')return {kind:'online'};
   const days=tdbDayLetters(o.days);
   const timeTok=tdbNorm(o.time);
-  if(!days&&(!timeTok||tdbArrangedRe.test(timeTok)))return {kind:'arranged'};
+  if(!days&&!tdbTimeRangeRe.test(timeTok))return {kind:'arranged'};
   return {kind:'scheduled',days,time:tdbNormMeet(timeTok)};
+}
+/* Same course, same instructor, same meeting-pattern class — almost certainly
+   the same real-world offering split into several Banner sections (most often
+   one section per credit-hour value on a ranged-credit course, e.g. dissertation
+   or practicum hours 1-9). Used to tell that apart from a genuine collision
+   (like two different-instructor, different-modality sections of one course
+   number) so multiple reference groups can share one target offering without
+   tripping the "already matched elsewhere" warning. */
+function tdbSiblingKey(row){
+  return `${tdbClassPrefix(row.Class)}|${tdbClassNumber(row.Class)}|${tdbNorm(row['Prim Instructor']).toLowerCase()}`;
+}
+function tdbClaimedMap(excludeKey){
+  const map=new Map();
+  Object.entries(TDB.pairings).forEach(([k,v])=>{
+    if(!v||v==='DELETE'||k===excludeKey)return;
+    const g=TDB.groups.find(x=>x.key===k);
+    const row=g&&g.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH');
+    if(row)map.set(v,tdbSiblingKey(row));
+  });
+  return map;
+}
+/* "Arranged" and "online" both present as no-day/no-time-range on the reference
+   side, and Cognos text isn't a reliable enough signal to always tell them apart
+   (an async course won't necessarily say "WEB" anywhere). Rather than guess, treat
+   them as compatible for matching — what actually matters is "no fixed meeting
+   time" either way. A real scheduled time still has to match exactly. */
+function tdbKindsCompatible(a,b){
+  if(a===b)return true;
+  const noSchedule=k=>k==='arranged'||k==='online';
+  return noSchedule(a)&&noSchedule(b);
 }
 function tdbMeetingsMatch(refRow,offering){
   const a=tdbClassifyRef(refRow), b=tdbClassifyOffering(offering);
-  if(a.kind!==b.kind)return false;
-  if(a.kind==='scheduled')return a.days===b.days&&a.time===b.time;
-  return true; // both online, or both arranged/no-fixed-schedule — equivalent regardless of exact wording
+  if(!tdbKindsCompatible(a.kind,b.kind))return false;
+  if(a.kind==='scheduled'&&b.kind==='scheduled')return a.days===b.days&&a.time===b.time;
+  return true;
 }
 /* For comparing free-text meeting patterns where only formatting differs
    (trailing space, case) — not for display, which keeps the original text. */
@@ -3113,8 +3147,10 @@ function tdbTargetOfferings(){
    number/number2, whether their meeting-pattern class (online/arranged/
    scheduled) agrees, and instructor-name overlap. Courses with multiple
    sections (e.g. several PE 124 CRNs) produce several candidate offerings
-   with the same course number — skipping offerings another group has already
-   been confirmed against keeps those sections from colliding on one suggestion. */
+   with the same course number — skip an offering another group already
+   claimed UNLESS that group is a ranged-credit sibling (same course, same
+   instructor, same meeting class), since those are expected to share one
+   target offering rather than needing distinct ones. */
 function tdbSuggestMatch(group, offerings){
   const psuRows=group.rows.filter(r=>tdbClassPrefix(r.Class)!=='SOPH');
   if(psuRows.length===0||offerings.length===0)return null;
@@ -3122,16 +3158,17 @@ function tdbSuggestMatch(group, offerings){
   const prefix=tdbClassPrefix(psuRows[0].Class);
   const instr=tdbNorm(psuRows[0]['Prim Instructor']).toLowerCase();
   const refKind=tdbClassifyRef(psuRows[0]).kind;
-  const claimed=new Set(Object.entries(TDB.pairings).filter(([k])=>k!==group.key).map(([,v])=>v));
+  const mySibling=tdbSiblingKey(psuRows[0]);
+  const claimedMap=tdbClaimedMap(group.key);
   let best=null,bestScore=0;
   offerings.forEach(o=>{
     if((o.prefix||'').toUpperCase()!==prefix)return;
-    if(claimed.has(o._uuid))return; // already confirmed against a different group this session
+    if(claimedMap.has(o._uuid)&&claimedMap.get(o._uuid)!==mySibling)return; // claimed by a genuinely different group
     let score=0;
     if(nums.has(o.courseNumber))score+=2;
     if(o.number2&&nums.has(o.number2))score+=2;
     if(score===0)return;
-    if(tdbClassifyOffering(o).kind===refKind)score+=2;
+    if(tdbKindsCompatible(tdbClassifyOffering(o).kind,refKind))score+=2;
     const oi=(tdbNorm(o.instructor1)+' '+tdbNorm(o.instructor2)).toLowerCase();
     if(instr&&oi.includes(instr.split(' ').pop()))score+=1;
     if(score>bestScore){bestScore=score;best=o;}
@@ -3326,10 +3363,11 @@ function tdbRenderPairTable(groups,offerings){
         ${g.gcl!==null?`<div class="gcl">GCL ${g.gcl}</div>`:''}
       </div>`;
 
-    const claimedElsewhere=new Set(Object.entries(TDB.pairings).filter(([k,v])=>k!==g.key&&v&&v!=='DELETE').map(([,v])=>v));
+    const mySibling=tdbSiblingKey(g.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')||g.rows[0]);
+    const claimedElsewhere=tdbClaimedMap(g.key);
     const options=[`<option value="">— not linked yet —</option>`,
       `<option value="DELETE" ${current==='DELETE'?'selected':''}>Not continuing (Delete)</option>`]
-      .concat(offerings.map(o=>`<option value="${o._uuid}" ${current===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}${claimedElsewhere.has(o._uuid)?' — ⚠ also matched elsewhere':''}</option>`));
+      .concat(offerings.map(o=>`<option value="${o._uuid}" ${current===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}${claimedElsewhere.has(o._uuid)&&claimedElsewhere.get(o._uuid)!==mySibling?' — ⚠ also matched elsewhere':''}</option>`));
 
     const matchedOffering = current && current!=='DELETE'
       ? offerings.find(o=>o._uuid===current) : null;
