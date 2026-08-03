@@ -417,8 +417,12 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
                 <h3>3 · Review each group against the target term</h3>
                 <p class="tdb-sub">Each template group is pre-matched to an offering by course number, with meeting pattern, cap total, modality and surname as tiebreakers. Anything genuinely ambiguous is left blank for you. Change or clear any of them — the suggestion is a starting point, not a decision.</p>
               </div>
-              <button class="btn btn-p btn-sm" id="tdb-lock-btn" style="white-space:nowrap">🔒 Lock review set</button>
+              <div style="display:flex;gap:8px;white-space:nowrap">
+                <button class="btn btn-s btn-sm" id="tdb-resuggest-btn">Re-suggest matches</button>
+                <button class="btn btn-p btn-sm" id="tdb-lock-btn">🔒 Lock review set</button>
+              </div>
             </div>
+            <div id="tdb-pair-note"></div>
             <div id="tdb-lock-banner" style="display:none"></div>
             <div class="table-wrap tdb-pair-wrap">
               <table id="tdb-pair-tbl">
@@ -3726,18 +3730,9 @@ function tdbDiffChips(group,offering){
 }
 function tdbRenderPrefixGrid(){
   const card=$('tdb-scope-card'), grid=$('tdb-prefix-grid');
-  const found=new Map();
-  (TDB.draftFile?TDB.draftFile.rows:[]).forEach(r=>{
-    const p=r.subj==='SOPH'?(tdbTitleRef(r.title)||{}).prefix:r.subj;
-    if(!p)return;
-    found.set(p,(found.get(p)||0)+1);
-  });
+  const found=tdbDiscoverPrefixes();
   if(found.size===0){card.style.display='none';return;}
   card.style.display='';
-  if(!TDB.allowedInit){
-    found.forEach((_,p)=>{ if(TDB_DEFAULT_ALLOWED.has(p))TDB.allowedPrefixes.add(p); });
-    TDB.allowedInit=true;
-  }
   grid.innerHTML='';
   [...found.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([p,ct])=>{
     const on=TDB.allowedPrefixes.has(p);
@@ -3764,7 +3759,7 @@ function tdbRenderStats(offerings){
   wrap.innerHTML=`
     <div class="tdb-stat"><div class="n">${TDB.draftFile.rows.length}</div><div class="l">Template rows</div></div>
     <div class="tdb-stat"><div class="n">${TDB.groups.length}</div><div class="l">Groups in scope</div></div>
-    <div class="tdb-stat"><div class="n">${offerings.length}</div><div class="l">Target-term offerings</div></div>
+    <div class="tdb-stat ${offerings.length?'':'warn'}"><div class="n">${offerings.length}</div><div class="l">Offerings in ${esc(TDB.targetTerm||'(no term picked)')}</div></div>
     <div class="tdb-stat"><div class="n">${decided}/${TDB.groups.length}</div><div class="l">Groups reviewed</div></div>
     <div class="tdb-stat ${deletes?'warn':''}"><div class="n">${deletes}</div><div class="l">Rows marked Delete</div></div>
     <div class="tdb-stat"><div class="n">${confirmedAdds}/${unmatched.length}</div><div class="l">New offerings confirmed</div></div>`;
@@ -3779,9 +3774,17 @@ function tdbRenderLockBanner(){
   $('tdb-unlock-btn').addEventListener('click',()=>{TDB.locked=false;TDB.lockedAt=null;tdbRenderAll();tdbUpdateGenerateBtn();});
 }
 function tdbLock(){
+  const offerings=tdbTargetOfferings();
+  if(offerings.length===0){
+    alert(!TDB.targetTerm
+      ? 'Pick the target term first — there are no offerings to pair against yet.'
+      : `The schedule holds no offerings for "${TDB.targetTerm}", so there is nothing to pair against.`);
+    return;
+  }
   const pending=TDB.groups.filter(g=>!TDB.pairings[g.key]);
   if(pending.length){
-    alert(`${pending.length} group${pending.length===1?'':'s'} still need a decision — pair each one with an offering or mark it discontinued.`);
+    alert(`${pending.length} group${pending.length===1?'':'s'} still need a decision — pair each one with an offering or mark it discontinued.\n\nFirst few: ${
+      pending.slice(0,5).map(tdbGroupLabel).join(', ')}`);
     return;
   }
   TDB.locked=true;
@@ -3789,9 +3792,23 @@ function tdbLock(){
   tdbRenderAll(); tdbUpdateGenerateBtn();
 }
 function tdbRenderPairTable(offerings){
-  const card=$('tdb-pair-card'), tb=$('tdb-pair-tb');
+  const card=$('tdb-pair-card'), tb=$('tdb-pair-tb'), note=$('tdb-pair-note');
   if(!TDB.draftFile||!TDB.groups.length){card.style.display='none';return;}
   card.style.display='';
+
+  // An empty offering list is the one failure that looks like a broken UI
+  // rather than a missing input — every dropdown comes up with nothing in it.
+  // Say plainly which term is selected and what the schedule holds for it.
+  if(offerings.length===0){
+    const terms=[...new Set((DB.offerings||[]).map(o=>o.term))].sort();
+    note.innerHTML=`<div class="tdb-sum-review"><b>No offerings to match against</b><span class="why">${
+      !TDB.targetTerm
+        ? 'No target term is selected — pick one in the toolbar above.'
+        : `The schedule holds no offerings for "${esc(TDB.targetTerm)}". Loaded terms: ${
+            terms.length?esc(terms.join(', ')):'none — the schedule data may not have loaded'}.`
+      }</span></div>`;
+  }else note.innerHTML='';
+
   tb.innerHTML='';
   TDB.groups.forEach(g=>{
     const decision=TDB.pairings[g.key];
@@ -3879,9 +3896,30 @@ function tdbRenderAll(){
   tdbRenderUnmatched(offerings);
   $('tdb-draft-card').style.display=TDB.draftFile?'':'none';
 }
+/* Which subject prefixes the template contains, and how many rows each
+   accounts for. Derived from the template alone — no target term needed. */
+function tdbDiscoverPrefixes(){
+  const found=new Map();
+  (TDB.draftFile?TDB.draftFile.rows:[]).forEach(r=>{
+    const p=r.subj==='SOPH'?(tdbTitleRef(r.title)||{}).prefix:r.subj;
+    if(!p)return;
+    found.set(p,(found.get(p)||0)+1);
+  });
+  return found;
+}
 function tdbRecompute(){
-  if(!TDB.draftFile){TDB.groups=[];tdbRenderAll();tdbUpdateGenerateBtn();return;}
+  if(!TDB.draftFile){TDB.groups=[];TDB.outOfScope=[];tdbRenderAll();tdbUpdateGenerateBtn();return;}
   TDB.psuIds=tdbBuildPsuIdMap(TDB.draftFile.rows);
+
+  // Scope has to be settled before groups are split by it. This used to be
+  // seeded inside the prefix grid's render, which runs after the split — so
+  // the first pass filtered every group out against an empty allow-list and
+  // the review table came up with nothing decided.
+  if(!TDB.allowedInit){
+    tdbDiscoverPrefixes().forEach((_,p)=>{ if(TDB_DEFAULT_ALLOWED.has(p))TDB.allowedPrefixes.add(p); });
+    TDB.allowedInit=true;
+  }
+
   const all=tdbBuildDraftGroups(TDB.draftFile.rows);
   // A SOPH row naming no course at all (SOPH 2 network services and friends)
   // is registrar plumbing, not a section this tool has any opinion about —
@@ -3891,15 +3929,24 @@ function tdbRecompute(){
   TDB.groups=scoped.filter(g=>TDB.allowedPrefixes.has(g.ref.prefix));
   // Anything out of scope is a delete, decided up front rather than row by row.
   TDB.outOfScope=scoped.filter(g=>!TDB.allowedPrefixes.has(g.ref.prefix));
+
+  // With no offerings to match against there is nothing to conclude — every
+  // group would otherwise be auto-marked Delete purely because the target
+  // term hasn't been picked yet, which is the opposite of a safe default.
   const offerings=tdbTargetOfferings();
+  if(offerings.length)tdbSuggestAll(offerings);
+  tdbRenderAll();
+  tdbUpdateGenerateBtn();
+}
+/* Fills in a suggestion for every group that hasn't been decided yet.
+   Never overwrites a choice already made. */
+function tdbSuggestAll(offerings){
   TDB.groups.forEach(g=>{
     if(TDB.pairings[g.key]!==undefined)return;
     const s=tdbSuggestMatch(g,offerings);
     if(s)TDB.pairings[g.key]=s._uuid;
     else if(tdbCandidates(g,offerings).length===0)TDB.pairings[g.key]='DELETE';
   });
-  tdbRenderAll();
-  tdbUpdateGenerateBtn();
 }
 function renderTdb(){
   tdbPopulateTerms();
@@ -3921,6 +3968,13 @@ function wireTdbEvents(){
     tdbRecompute();
   });
   $('tdb-lock-btn').addEventListener('click',tdbLock);
+  $('tdb-resuggest-btn').addEventListener('click',()=>{
+    if(TDB.locked)return;
+    const offerings=tdbTargetOfferings();
+    if(offerings.length===0){alert('Pick the target term first.');return;}
+    tdbSuggestAll(offerings);
+    tdbRenderAll(); tdbUpdateGenerateBtn();
+  });
 
   const dz=$('tdb-draft-dropzone'), fi=$('tdb-draft-file-input');
   dz.addEventListener('click',()=>fi.click());
