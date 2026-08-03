@@ -238,6 +238,21 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .tdb-sum-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .tdb-sum-review{border:1px solid #E8B84B;background:var(--ltgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px}
 .tdb-sum-review b{font-family:monospace}
+.tdb-ref-row{font-size:12px;line-height:1.45;padding:1px 0}
+.tdb-ref-row .meta{color:var(--dgray);font-size:11px;margin-left:6px}
+.tdb-ref-row .meta.warn{display:block;margin-left:0;color:#92400E}
+.tdb-code{font-family:monospace;font-weight:700;color:var(--navy);font-size:12px}
+.tdb-pick{width:100%;font-size:12px}
+.tdb-pick:disabled{background:var(--lgray);color:var(--dgray);cursor:not-allowed}
+.tdb-pill{font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;display:inline-block;white-space:nowrap}
+.tdb-pill-ok{background:var(--ltgrn);color:#166534}
+.tdb-pill-del{background:var(--ltred);color:var(--red)}
+.tdb-pill-pend{background:var(--lgray);color:var(--dgray)}
+.tdb-unmatched-row{border:1px solid var(--mgray);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12.5px}
+.tdb-unmatched-row.on{border-color:var(--teal);background:var(--ltblue)}
+.tdb-unmatched-row label{display:flex;align-items:center;gap:8px;cursor:pointer}
+.tdb-unmatched-row .meta{color:var(--dgray);font-size:11px}
+.tdb-locked-note{border:1px solid var(--teal);background:var(--ltblue);border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .tdb-sum-review .why{display:block;color:#7a5518;margin-top:2px}
 </style>
 </head>
@@ -367,59 +382,50 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <!-- TERM DRAFT BUILDER -->
     <div class="view" id="view-termdraft">
       <div class="toolbar">
-        <label class="tdb-lbl">Reference term (prior year, actuals)
-          <select id="tdb-ref-term"><option value="">— pick a term —</option></select>
-        </label>
         <label class="tdb-lbl">Target term (being drafted)
           <select id="tdb-target-term"><option value="">— pick a term —</option></select>
         </label>
         <div class="tb-sp"></div>
-        <span class="tb-hint">Stage 2 · read-only — nothing here writes to the database</span>
+        <span class="tb-hint">Read-only — nothing here writes to the database</span>
       </div>
 
       <div class="tdb-scroll">
         <div class="tdb-wrap">
 
           <section class="tdb-card">
-            <h3>1 · Load the reference term's Cognos exports</h3>
-            <p class="tdb-sub">Drop the HSMP, PE, PHE, and SOPH RegCount exports for the reference term selected above. Department is auto-detected — files don't need to be named or ordered any particular way.</p>
-            <div class="tdb-drop" id="tdb-dropzone">
-              <strong>Drop .xlsx files here, or click to browse</strong>
-              <span>Expecting up to 4 files — one per department</span>
-              <input type="file" id="tdb-file-input" multiple accept=".xlsx">
+            <h3>1 · Load PSU's Draft template</h3>
+            <p class="tdb-sub">The template arrives as last year's sections rolled forward with fresh CRNs, so it doubles as the reference schedule — no Cognos exports needed. Its XLST column supplies the crosslist grouping.</p>
+            <div class="tdb-drop" id="tdb-draft-dropzone">
+              <strong>Drop the Draft template .xlsx here, or click to browse</strong>
+              <span>The sheet named "Draft", exactly as PSU sent it</span>
+              <input type="file" id="tdb-draft-file-input" accept=".xlsx">
             </div>
-            <div class="tdb-files" id="tdb-file-list"></div>
+            <div id="tdb-draft-file-info"></div>
           </section>
 
           <section class="tdb-card" id="tdb-scope-card" style="display:none">
             <h3>2 · Confirm which subjects are in scope</h3>
-            <p class="tdb-sub">SOPH's export cross-lists with departments outside SPH. Toggle which non-SOPH subject prefixes belong in this draft — SOPH rows are kept only when paired with an in-scope subject.</p>
+            <p class="tdb-sub">The template carries crosslists with OHSU-taught subjects and other schools. Anything switched off here is marked Delete — including the SOPH shell rows that pair with it.</p>
             <div class="tdb-prefixes" id="tdb-prefix-grid"></div>
           </section>
 
           <section id="tdb-stats-row" class="tdb-stats" style="display:none"></section>
 
-          <section class="tdb-card" id="tdb-anomaly-card" style="display:none">
-            <h3>Data-quality flags</h3>
-            <p class="tdb-sub">Crosslist codes that only showed up on one side. Dismiss the ones that are known one-offs (e.g. crosslisted with another school) — this doesn't persist between sessions, so it'll ask again next cycle.</p>
-            <div id="tdb-anomaly-list"></div>
-          </section>
-
           <section class="tdb-card" id="tdb-pair-card" style="display:none">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
               <div>
-                <h3>3 · Pair reference-term groups against the target term's offerings</h3>
-                <p class="tdb-sub">Nothing pairs automatically. Each row shows a suggested match by course number — confirm it, pick a different offering, or mark it discontinued if nothing in the target term corresponds to it.</p>
+                <h3>3 · Review each group against the target term</h3>
+                <p class="tdb-sub">Each template group is pre-matched to an offering by course number, with meeting pattern, cap total, modality and surname as tiebreakers. Anything genuinely ambiguous is left blank for you. Change or clear any of them — the suggestion is a starting point, not a decision.</p>
               </div>
-              <button class="btn btn-p btn-sm" id="tdb-lock-btn" style="white-space:nowrap">🔒 Lock pairing set</button>
+              <button class="btn btn-p btn-sm" id="tdb-lock-btn" style="white-space:nowrap">🔒 Lock review set</button>
             </div>
             <div id="tdb-lock-banner" style="display:none"></div>
             <div class="table-wrap tdb-pair-wrap">
               <table id="tdb-pair-tbl">
                 <thead><tr>
-                  <th>Reference (prior-year actuals)</th>
-                  <th>Match</th>
-                  <th>Target offering (this draft)</th>
+                  <th>Template rows</th>
+                  <th>XLST</th>
+                  <th>Target offering</th>
                   <th>Diff</th>
                   <th>Status</th>
                 </tr></thead>
@@ -430,19 +436,13 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 
           <section class="tdb-card" id="tdb-unmatched-card" style="display:none">
             <h3>4 · Confirm this term's new offerings</h3>
-            <p class="tdb-sub">Nothing in the reference term's Cognos data lined up with these — most look like brand-new sections. Confirm each one so it's accounted for; this doesn't change anything in the schedule itself, it just marks the review as done.</p>
+            <p class="tdb-sub">Nothing in the template lines up with these. Tick the ones that should be added as new sections — each gets a PSU row, a SOPH shell where there are OHSU seats, and one section per credit value on variable-credit courses.</p>
             <div id="tdb-unmatched-list"></div>
           </section>
 
           <section class="tdb-card" id="tdb-draft-card" style="display:none">
             <h3>5 · Generate the marked-up draft</h3>
-            <p class="tdb-sub">Upload the PSU-provided Draft template (the one you're editing and returning). Matched by SUBJ+CRSE+SECT against your locked pairing set — flag column, cap, instructor, and instructional method get updated where something actually changed; everything else in the row is left exactly as PSU sent it.</p>
-            <div class="tdb-drop" id="tdb-draft-dropzone">
-              <strong>Drop the Draft template .xlsx here, or click to browse</strong>
-              <span>Requires the pairing set to be locked first</span>
-              <input type="file" id="tdb-draft-file-input" accept=".xlsx">
-            </div>
-            <div id="tdb-draft-file-info"></div>
+            <p class="tdb-sub">Writes the flag column plus caps, instructional method, meeting time, instructors, print flag and waitlist where they actually differ. Everything else in the row — restrictions, billing, fees, grade mode, campus code — is left exactly as PSU sent it.</p>
             <div style="margin-top:14px;">
               <button class="btn btn-p" id="tdb-generate-btn" disabled>Generate draft file</button>
             </div>
@@ -452,6 +452,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
         </div>
       </div>
     </div>
+
   </main>
 </div>
 
@@ -2913,664 +2914,183 @@ function updateAuthBar(user,admin){
   }
 }
 
-/* ─── TERM DRAFT BUILDER (Stage 1 combine + Stage 2 pairing) ───
-   Read-only against this app's data: it only ever calls sb.from('offerings')
-   indirectly through the already-loaded DB object. Nothing in this module
-   writes to Supabase. Xlist pairing is never automatic — see tdbSuggestMatch,
-   which is a hint the person clicks to accept, not a decision the tool makes. */
+/* ─── TERM DRAFT BUILDER ────────────────────────────────────────
+   Read-only against this app's data — it only reads the already-loaded DB
+   object and never writes to Supabase.
+
+   The PSU Draft template IS the reference schedule: it arrives as last
+   year's sections rolled forward with fresh CRNs. Verified against the
+   Winter 2027 cycle — 191 of 193 template rows matched the prior term's
+   Cognos export exactly on SUBJ+CRSE+SECT, and every cell change in the
+   hand-built draft was explainable as template-row vs. target-offering.
+   So the Cognos RegCount exports are not part of the diff path; the
+   template alone is compared against the target term's offerings.
+
+   The template's own XLST column already encodes the crosslist groups, so
+   grouping is read from column B rather than reconstructed. One group is
+   one real-world offering; a dual-listed course shows up as two PSU rows
+   plus two SOPH rows sharing one code. */
 const TDB = {
-  refTerm:'', targetTerm:'',
-  files:[],                 // {id,name,dept,rawRows}
+  targetTerm:'',
+  draftFile:null,           // {wb,ws,sheetName,rows,name,lastRow}
+  groups:[],
   allowedPrefixes:new Set(),
   allowedInit:false,
-  dismissed:new Map(),      // group.key -> display label, marked "not ours" this session
   pairings:{},              // group.key -> offering _uuid | 'DELETE'
-  addConfirmed:new Set(),   // offering _uuid's explicitly confirmed as "new this term" from the unmatched list
-  groups:[],
+  addConfirmed:new Set(),   // offering _uuid confirmed as new-this-term
   termsPopulated:false,
-  locked:false, lockedAt:null,
-  draftFile:null
+  locked:false, lockedAt:null
 };
-const TDB_DEFAULT_ALLOWED=new Set(['HSMP','PE','PHE','BSTA','EPI']);
-const tdbCOLS=['Xlist','College','Dept','Class','Sect','CRN','Min Credits','Max Credits','Status','Title',
-  'Auth Size','Actual Enrl','Waitlist Count','Tot Cr Hrs','Prim Instructor','From','To','Times','Locations'];
 
-const tdbNorm=v=>(v===undefined||v===null)?'':String(v).trim();
-const tdbNormH=v=>tdbNorm(v).toLowerCase().replace(/\s+/g,' ');
-const tdbClassPrefix=cls=>{const c=tdbNorm(cls);return c?c.split(' ')[0].toUpperCase():'';};
-const tdbClassNumber=cls=>{const c=tdbNorm(cls).split(' ');return c.length>1?c[1]:'';};
-/* ── meeting-pattern classification ──────────────────────────────
-   Reference Times ("MW 1745-2015") and target days/time ("M, W" + "1745-2015")
-   use different day-separator conventions, and both sides represent "no fixed
-   meeting" a bunch of different ways (blank, "ARR", "By Arrangement",
-   "Instructor Arranged", "TBA") and "online" a bunch of different ways
-   (blank schedule + Locations="WEB", or modality="Online (async/sync)").
-   Comparing the raw text literally flags all of that as a change. Classify
-   into {online} / {arranged} / {scheduled, days, time} instead, and only
-   treat it as a real diff when the classification or the schedule itself
-   differs — never on wording alone. */
-const tdbDayOrder=['M','T','W','R','F','S','U'];
-/* Real scheduled meetings have a numeric time range (e.g. "1745-2015", "0900-0950").
-   Rather than whitelist every phrasing of "no fixed schedule" (which missed "TBD",
-   "ARR.", anything with trailing punctuation...), treat the ABSENCE of a real time
-   range as the signal — much harder to miss a real one than to guess every fake one. */
-const tdbTimeRangeRe=/\d{3,4}\s*-\s*\d{3,4}/;
-const tdbOnlineRe=/\b(web|online|async|asynchronous|remote)\b/i;
-function tdbDayLetters(tok){
-  const letters=new Set();
-  tdbNorm(tok).toUpperCase().replace(/[^A-Z]/g,'').split('').forEach(ch=>{ if(tdbDayOrder.includes(ch))letters.add(ch); });
-  return tdbDayOrder.filter(d=>letters.has(d)).join('');
-}
-function tdbSplitRefMeeting(raw){
-  const s=tdbNorm(raw);
-  if(!s)return {dayTok:'',timeTok:''};
-  const parts=s.split(/\s+/);
-  const first=parts[0]||'';
-  if(/^[MTWRFSUmtwrfsu]{1,3}$/.test(first))return {dayTok:first,timeTok:parts.slice(1).join(' ')};
-  return {dayTok:'',timeTok:s};
-}
-function tdbClassifyRef(row){
-  if(tdbOnlineRe.test(tdbNorm(row.Locations))||tdbOnlineRe.test(tdbNorm(row.Times)))return {kind:'online'};
-  const {dayTok,timeTok}=tdbSplitRefMeeting(row.Times);
-  const days=tdbDayLetters(dayTok);
-  if(!days&&!tdbTimeRangeRe.test(timeTok))return {kind:'arranged'};
-  return {kind:'scheduled',days,time:tdbNormMeet(timeTok||dayTok)};
-}
-function tdbClassifyOffering(o){
-  if(o.modality==='Online (async)'||o.modality==='Online (sync)')return {kind:'online'};
-  const days=tdbDayLetters(o.days);
-  const timeTok=tdbNorm(o.time);
-  if(!days&&!tdbTimeRangeRe.test(timeTok))return {kind:'arranged'};
-  return {kind:'scheduled',days,time:tdbNormMeet(timeTok)};
-}
-/* Same course, same instructor, same meeting-pattern class — almost certainly
-   the same real-world offering split into several Banner sections (most often
-   one section per credit-hour value on a ranged-credit course, e.g. dissertation
-   or practicum hours 1-9). Used to tell that apart from a genuine collision
-   (like two different-instructor, different-modality sections of one course
-   number) so multiple reference groups can share one target offering without
-   tripping the "already matched elsewhere" warning. */
-function tdbSiblingKey(row){
-  return `${tdbClassPrefix(row.Class)}|${tdbClassNumber(row.Class)}|${tdbNorm(row['Prim Instructor']).toLowerCase()}`;
-}
-function tdbClaimedMap(excludeKey){
-  const map=new Map();
-  Object.entries(TDB.pairings).forEach(([k,v])=>{
-    if(!v||v==='DELETE'||k===excludeKey)return;
-    const g=TDB.groups.find(x=>x.key===k);
-    const row=g&&g.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH');
-    if(row)map.set(v,tdbSiblingKey(row));
-  });
-  return map;
-}
-/* "Arranged" and "online" both present as no-day/no-time-range on the reference
-   side, and Cognos text isn't a reliable enough signal to always tell them apart
-   (an async course won't necessarily say "WEB" anywhere). Rather than guess, treat
-   them as compatible for matching — what actually matters is "no fixed meeting
-   time" either way. A real scheduled time still has to match exactly. */
-function tdbKindsCompatible(a,b){
-  if(a===b)return true;
-  const noSchedule=k=>k==='arranged'||k==='online';
-  return noSchedule(a)&&noSchedule(b);
-}
-function tdbMeetingsMatch(refRow,offering){
-  const a=tdbClassifyRef(refRow), b=tdbClassifyOffering(offering);
-  if(!tdbKindsCompatible(a.kind,b.kind))return false;
-  if(a.kind==='scheduled'&&b.kind==='scheduled')return a.days===b.days&&a.time===b.time;
-  return true;
-}
-/* For comparing free-text meeting patterns where only formatting differs
-   (trailing space, case) — not for display, which keeps the original text. */
-const tdbNormMeet=s=>tdbNorm(s).toLowerCase().replace(/\s+/g,'');
-function tdbNatCompare(a,b){
-  const pa=String(a).match(/^(\d*)(.*)$/),pb=String(b).match(/^(\d*)(.*)$/);
-  const na=pa[1]?parseInt(pa[1],10):-1, nb=pb[1]?parseInt(pb[1],10):-1;
-  if(na!==nb)return na-nb;
-  return String(pa[2]).localeCompare(String(pb[2]));
-}
+/* PSU-side subjects that belong in a PSU draft. OHSU-taught subjects
+   (BSTA, EPI, ESHH, CPH) and other schools' crosslists (SOC, GEOG, WS)
+   are deleted from the PSU schedule, not maintained in it. Toggleable
+   per cycle in the scope card. */
+const TDB_DEFAULT_ALLOWED=new Set(['HSMP','PE','PHE','PUBH']);
 
-function tdbFindHeaderRow(rows){
-  const want=new Set(tdbCOLS.map(tdbNormH));
-  for(let i=0;i<Math.min(rows.length,5);i++){
-    const hits=(rows[i]||[]).map(tdbNormH).filter(c=>want.has(c)).length;
-    if(hits>=10)return i;
-  }
-  return 0;
-}
-function tdbDetectDept(wb,rawRows){
-  const sn=wb.SheetNames.find(n=>/formatted/i.test(n));
-  if(sn){
-    const cell=wb.Sheets[sn]['A1'];
-    if(cell&&cell.v){const m=String(cell.v).match(/Subj:\s*([A-Za-z]+)/i);if(m)return m[1].toUpperCase();}
-  }
-  const counts={};
-  rawRows.forEach(r=>{const c=tdbNorm(r.Class);if(!c)return;const p=c.split(' ')[0].toUpperCase();if(p!=='SOPH')counts[p]=(counts[p]||0)+1;});
-  const e=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  return e.length?e[0][0]:'UNKNOWN';
-}
-function tdbParseFile(file){
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
-        const sn=wb.SheetNames.find(n=>/^excel page$/i.test(n))||wb.SheetNames[0];
-        const grid=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null});
-        const hi=tdbFindHeaderRow(grid);
-        const header=grid[hi].map(tdbNormH);
-        const idx={}; tdbCOLS.forEach(c=>{idx[c]=header.indexOf(tdbNormH(c));});
-        const rawRows=[];
-        for(let i=hi+1;i<grid.length;i++){
-          const row=grid[i]; if(!row)continue;
-          const obj={}; tdbCOLS.forEach(c=>{obj[c]=idx[c]>=0?row[idx[c]]:null;});
-          if(tdbCOLS.some(c=>obj[c]!==null&&obj[c]!=='')) rawRows.push(obj);
-        }
-        resolve({id:crypto.randomUUID(),name:file.name,dept:tdbDetectDept(wb,rawRows),rawRows});
-      }catch(err){reject(err);}
-    };
-    reader.onerror=reject;
-    reader.readAsArrayBuffer(file);
-  });
-}
-function tdbCollapseContinuations(rawRows){
-  const out=[]; let last=null;
-  rawRows.forEach(r=>{
-    if(tdbNorm(r.Class)){ out.push(Object.assign({},r,{_extra:[]})); last=out[out.length-1]; }
-    else if(last&&(tdbNorm(r.Times)||tdbNorm(r.Locations)||r.From||r.To)){
-      last._extra.push({times:tdbNorm(r.Times),locations:tdbNorm(r.Locations)});
-    }
-  });
-  return out;
-}
-function tdbMeetingText(row){
-  const parts=[]; const t=tdbNorm(row.Times), l=tdbNorm(row.Locations);
-  if(t||l) parts.push(`${t}${t&&l?' — ':''}${l}`);
-  (row._extra||[]).forEach(m=>{ if(m.times||m.locations) parts.push(`${m.times}${m.times&&m.locations?' — ':''}${m.locations}`); });
-  return parts.join('; ')||'ARRNGD';
-}
-
-function tdbBuildGroups(){
-  const allRows=[]; const seen=new Set();
-  TDB.files.forEach(f=>{
-    tdbCollapseContinuations(f.rawRows).forEach(r=>{
-      const key=tdbNorm(r.CRN)||`${f.dept}|${tdbNorm(r.Class)}|${tdbNorm(r.Sect)}`;
-      if(seen.has(key))return; seen.add(key);
-      allRows.push(Object.assign({},r,{_srcDept:f.dept}));
-    });
-  });
-  const byXlist=new Map(); const singles=[];
-  allRows.forEach(r=>{
-    const x=tdbNorm(r.Xlist);
-    if(x){ if(!byXlist.has(x))byXlist.set(x,[]); byXlist.get(x).push(r); }
-    else singles.push({xlist:'',rows:[r]});
-  });
-  let groups=[...byXlist.entries()].map(([xlist,rows])=>({xlist,rows})).concat(singles);
-
-  // A SOPH row with no crosslist code but a title that clearly names a specific
-  // course ("HSMP 509 PRACTICE EXPERIENCE") usually means Banner's crosslist
-  // link is just missing, not that the row is unrelated — surface it rather
-  // than silently dropping it for lack of a non-SOPH sibling.
-  const tdbTitleRefMatch=title=>{
-    const m=tdbNorm(title).match(/^([A-Z]{2,6})\s?(\d{3,4}[A-Z]?)\b/);
-    return m ? {prefix:m[1], number:m[2]} : null;
-  };
-  groups.forEach(g=>{
-    if(g.xlist)return;
-    const row=g.rows[0];
-    if(tdbClassPrefix(row.Class)!=='SOPH')return;
-    const ref=tdbTitleRefMatch(row.Title);
-    if(ref && TDB.allowedPrefixes.has(ref.prefix)) g._orphanRef=ref;
-  });
-
-  groups=groups.filter(g=>g._orphanRef || g.rows.some(r=>{
-    const p=tdbClassPrefix(r.Class);
-    return p!=='SOPH'&&TDB.allowedPrefixes.has(p);
-  }));
-
-  groups.forEach(g=>{
-    const nonSoph=g.rows.filter(r=>tdbClassPrefix(r.Class)!=='SOPH')
-      .sort((a,b)=>tdbNatCompare(tdbClassNumber(a.Class),tdbClassNumber(b.Class)));
-    const soph=g.rows.filter(r=>tdbClassPrefix(r.Class)==='SOPH')
-      .sort((a,b)=>tdbNatCompare(tdbNorm(a.Sect),tdbNorm(b.Sect)));
-    g.rows=nonSoph.concat(soph);
-    g.key=g.xlist||('single:'+tdbNorm(g.rows[0].CRN));
-  });
-
-  groups.forEach(g=>{
-    let sum=0,any=false;
-    g.rows.forEach(r=>{ const v=Number(r['Auth Size']); if(!isNaN(v)&&v<9999){sum+=v;any=true;} });
-    g.gcl=any?sum:null;
-  });
-
-  groups.forEach(g=>{
-    if(g._orphanRef){
-      g.anomaly=true;
-      g.anomalyReason=`No crosslist code, but title references ${g._orphanRef.prefix} ${g._orphanRef.number} — likely an unlinked crosslist in Banner`;
-      return;
-    }
-    const prefixes=new Set(g.rows.map(r=>tdbClassPrefix(r.Class)));
-    const hasSoph=prefixes.has('SOPH'), hasNonSoph=[...prefixes].some(p=>p!=='SOPH');
-    g.anomaly=!!(g.xlist&&(!hasSoph||!hasNonSoph));
-    g.anomalyReason=g.anomaly?(!hasSoph?'No SOPH-side row found for this crosslist code':'No PSU-side row found for this crosslist code'):null;
-  });
-
-  groups=groups.filter(g=>!TDB.dismissed.has(g.key));
-
-  groups.sort((a,b)=>{
-    const pick=g=>g.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')||g.rows[0];
-    const ra=pick(a),rb=pick(b);
-    const pa=tdbClassPrefix(ra.Class),pb=tdbClassPrefix(rb.Class);
-    if(pa!==pb)return pa.localeCompare(pb);
-    const c=tdbNatCompare(tdbClassNumber(ra.Class),tdbClassNumber(rb.Class));
-    if(c!==0)return c;
-    return tdbNatCompare(tdbNorm(ra.Sect),tdbNorm(rb.Sect));
-  });
-  return groups;
-}
-
-/* ─── target-term offerings, augmented with number2 (dual-listing) ─── */
-function tdbTargetOfferings(){
-  if(!DB||!DB.offerings||!TDB.targetTerm)return [];
-  const courseById={}; (DB.courses||[]).forEach(c=>{courseById[c.id]=c;});
-  return DB.offerings.filter(o=>o.term===TDB.targetTerm).map(o=>{
-    const c=courseById[o.courseId]||{};
-    return Object.assign({}, o, {number2:c.number2||''});
-  }).sort((a,b)=>{
-    if(a.prefix!==b.prefix)return (a.prefix||'').localeCompare(b.prefix||'');
-    const c=tdbNatCompare(a.courseNumber,b.courseNumber);
-    if(c!==0)return c;
-    return tdbNatCompare(a.number2||'',b.number2||'');
-  });
-}
-
-/* Suggestion only — never auto-applied. Scores an offering against a group by
-   how many of the group's non-SOPH course numbers match the offering's
-   number/number2, whether their meeting-pattern class (online/arranged/
-   scheduled) agrees, and instructor-name overlap. Courses with multiple
-   sections (e.g. several PE 124 CRNs) produce several candidate offerings
-   with the same course number — skip an offering another group already
-   claimed UNLESS that group is a ranged-credit sibling (same course, same
-   instructor, same meeting class), since those are expected to share one
-   target offering rather than needing distinct ones. */
-function tdbSuggestMatch(group, offerings){
-  const psuRows=group.rows.filter(r=>tdbClassPrefix(r.Class)!=='SOPH');
-  if(psuRows.length===0||offerings.length===0)return null;
-  const nums=new Set(psuRows.map(r=>tdbClassNumber(r.Class)));
-  const prefix=tdbClassPrefix(psuRows[0].Class);
-  const instr=tdbNorm(psuRows[0]['Prim Instructor']).toLowerCase();
-  const refKind=tdbClassifyRef(psuRows[0]).kind;
-  const mySibling=tdbSiblingKey(psuRows[0]);
-  const claimedMap=tdbClaimedMap(group.key);
-  let best=null,bestScore=0;
-  offerings.forEach(o=>{
-    if((o.prefix||'').toUpperCase()!==prefix)return;
-    if(claimedMap.has(o._uuid)&&claimedMap.get(o._uuid)!==mySibling)return; // claimed by a genuinely different group
-    let score=0;
-    if(nums.has(o.courseNumber))score+=2;
-    if(o.number2&&nums.has(o.number2))score+=2;
-    if(score===0)return;
-    if(tdbKindsCompatible(tdbClassifyOffering(o).kind,refKind))score+=2;
-    const oi=(tdbNorm(o.instructor1)+' '+tdbNorm(o.instructor2)).toLowerCase();
-    if(instr&&oi.includes(instr.split(' ').pop()))score+=1;
-    if(score>bestScore){bestScore=score;best=o;}
-  });
-  return best;
-}
-
-function tdbOfferingLabel(o){
-  const num=o.number2?`${o.courseNumber}/${o.number2}`:o.courseNumber;
-  const who=[o.instructor1,o.instructor2].filter(Boolean).join(' / ')||'TBD';
-  return `${o.prefix} ${num} — ${who} — Cap ${o.totalCap||'?'}`;
-}
-
-function tdbDiffChips(group, offering){
-  if(!offering)return '';
-  const chips=[];
-  const gcl=group.gcl, cap=Number(offering.totalCap);
-  if(gcl!==null && !isNaN(cap)){
-    chips.push(gcl===cap
-      ? `<span class="tdb-diff-chip tdb-diff-same">Cap ${cap}</span>`
-      : `<span class="tdb-diff-chip tdb-diff-changed">Cap ${gcl}→${cap}</span>`);
-  } else if(!isNaN(cap)){
-    chips.push(`<span class="tdb-diff-chip tdb-diff-new">Cap ${cap} (no ref)</span>`);
-  }
-  const refInstr=tdbNorm(group.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')?.['Prim Instructor']);
-  const tgtInstr=[offering.instructor1,offering.instructor2].filter(Boolean).join(' / ');
-  if(refInstr||tgtInstr){
-    const same=refInstr && tgtInstr && tgtInstr.toLowerCase().includes(refInstr.toLowerCase().split(' ').pop());
-    chips.push(same
-      ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgtInstr)}</span>`
-      : `<span class="tdb-diff-chip tdb-diff-changed">${esc(refInstr||'—')}→${esc(tgtInstr||'—')}</span>`);
-  }
-  const refRow=group.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')||{};
-  const refMeet=tdbNorm(refRow.Times);
-  const tgtMeet=[offering.days,offering.time].filter(Boolean).join(' ');
-  if(refMeet||tgtMeet||tdbClassifyOffering(offering).kind==='online'||tdbClassifyRef(refRow).kind==='online'){
-    const same=tdbMeetingsMatch(refRow,offering);
-    chips.push(same
-      ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgtMeet||offering.modality||'ARRNGD')}</span>`
-      : `<span class="tdb-diff-chip tdb-diff-changed">${esc(refMeet||'—')}→${esc(tgtMeet||offering.modality||'ARRNGD')}</span>`);
-  }
-  return chips.join('');
-}
-
-function tdbPendingCount(groups,offerings){
-  const refPending=groups.filter(g=>!TDB.pairings[g.key]).length;
-  if(!offerings)return refPending;
-  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
-  const addPending=offerings.filter(o=>!claimed.has(o._uuid)&&!TDB.addConfirmed.has(o._uuid)).length;
-  return refPending+addPending;
-}
-
-/* ─── rendering ─── */
-function tdbPopulateTerms(){
-  if(TDB.termsPopulated||!TERM_ROWS||!TERM_ROWS.length)return;
-  const opts=TERM_ROWS.map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
-  $('tdb-ref-term').insertAdjacentHTML('beforeend',opts);
-  $('tdb-target-term').insertAdjacentHTML('beforeend',opts);
-  TDB.termsPopulated=true;
-}
-
-function tdbRenderFileList(){
-  const list=$('tdb-file-list'); list.innerHTML='';
-  TDB.files.forEach(f=>{
-    const chip=document.createElement('div'); chip.className='tdb-chip';
-    chip.innerHTML=`<span class="badge">${esc(f.dept)}</span><span>${esc(f.name)}</span><span class="meta">${f.rawRows.length} rows</span><button title="Remove" ${TDB.locked?'disabled':''}>×</button>`;
-    if(!TDB.locked)chip.querySelector('button').addEventListener('click',()=>{ TDB.files=TDB.files.filter(x=>x.id!==f.id); tdbRecompute(); });
-    list.appendChild(chip);
-  });
-}
-
-function tdbRenderPrefixGrid(){
-  const card=$('tdb-scope-card'), grid=$('tdb-prefix-grid');
-  const discovered=new Map();
-  TDB.files.forEach(f=>{
-    tdbCollapseContinuations(f.rawRows).forEach(r=>{
-      const p=tdbClassPrefix(r.Class);
-      if(!p||p==='SOPH')return;
-      discovered.set(p,(discovered.get(p)||0)+1);
-    });
-  });
-  if(discovered.size===0){card.style.display='none';return;}
-  card.style.display='';
-  if(!TDB.allowedInit){
-    discovered.forEach((_,p)=>{ if(TDB_DEFAULT_ALLOWED.has(p))TDB.allowedPrefixes.add(p); });
-    TDB.allowedInit=true;
-  }
-  grid.innerHTML='';
-  [...discovered.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([p,ct])=>{
-    const on=TDB.allowedPrefixes.has(p);
-    const lbl=document.createElement('label');
-    lbl.className='tdb-ptoggle'+(on?' on':'');
-    lbl.innerHTML=`<input type="checkbox" ${on?'checked':''} ${TDB.locked?'disabled':''}> ${p} <span class="ct">(${ct})</span>`;
-    if(!TDB.locked)lbl.querySelector('input').addEventListener('change',e=>{
-      if(e.target.checked)TDB.allowedPrefixes.add(p); else TDB.allowedPrefixes.delete(p);
-      tdbRecompute();
-    });
-    grid.appendChild(lbl);
-  });
-}
-
-function tdbRenderStats(groups,offerings){
-  const wrap=$('tdb-stats-row');
-  if(TDB.files.length===0){wrap.style.display='none';return;}
-  wrap.style.display='';
-  const totalRaw=TDB.files.reduce((s,f)=>s+f.rawRows.length,0);
-  const anomalies=groups.filter(g=>g.anomaly).length;
-  const confirmed=Object.keys(TDB.pairings).filter(k=>TDB.pairings[k]).length;
-  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
-  const unmatchedOfferings=offerings.filter(o=>!claimed.has(o._uuid));
-  const addsConfirmed=unmatchedOfferings.filter(o=>TDB.addConfirmed.has(o._uuid)).length;
-  wrap.innerHTML=`
-    <div class="tdb-stat"><div class="n">${totalRaw}</div><div class="l">Raw reference rows</div></div>
-    <div class="tdb-stat"><div class="n">${groups.length}</div><div class="l">Reference groups (scope-filtered)</div></div>
-    <div class="tdb-stat"><div class="n">${offerings.length}</div><div class="l">Target-term offerings</div></div>
-    <div class="tdb-stat ${anomalies?'warn':''}"><div class="n">${anomalies}</div><div class="l">One-sided crosslist flags</div></div>
-    <div class="tdb-stat"><div class="n">${confirmed}/${groups.length}</div><div class="l">Groups paired/deleted</div></div>
-    <div class="tdb-stat"><div class="n">${addsConfirmed}/${unmatchedOfferings.length}</div><div class="l">New offerings confirmed</div></div>
-  `;
-}
-
-function tdbRenderAnomalies(groups){
-  const card=$('tdb-anomaly-card'), list=$('tdb-anomaly-list');
-  const anomalies=groups.filter(g=>g.anomaly);
-  if(anomalies.length===0&&TDB.dismissed.size===0){card.style.display='none';return;}
-  card.style.display='';
-  list.innerHTML='';
-  anomalies.forEach(g=>{
-    const names=g.rows.map(r=>`${tdbNorm(r.Class)} ${tdbNorm(r.Sect)}`.trim()).join(', ');
-    const label=g.xlist||names;
-    const div=document.createElement('div'); div.className='tdb-anom';
-    div.innerHTML=`<span>!</span><span style="flex:1"><b>${esc(g.xlist||'(no code)')}</b> — ${esc(names)}<span class="why">${g.anomalyReason}</span></span>
-      <button class="btn btn-s" style="font-size:11px;padding:4px 9px" data-key="${esc(g.key)}" data-label="${esc(label)}" ${TDB.locked?'disabled':''}>Not ours — exclude</button>`;
-    if(!TDB.locked)div.querySelector('button').addEventListener('click',e=>{ TDB.dismissed.set(e.target.dataset.key,e.target.dataset.label); tdbRecompute(); });
-    list.appendChild(div);
-  });
-  if(TDB.dismissed.size>0){
-    const row=document.createElement('div'); row.className='tdb-restore';
-    row.innerHTML='<span>Excluded this session:</span>';
-    TDB.dismissed.forEach((label,key)=>{
-      const chip=document.createElement('span'); chip.className='tdb-ptoggle'; chip.style.cursor='pointer';
-      chip.innerHTML=`${esc(label)} <b>×</b>`; chip.title='Click to restore';
-      chip.addEventListener('click',()=>{ TDB.dismissed.delete(key); tdbRecompute(); });
-      row.appendChild(chip);
-    });
-    list.appendChild(row);
-  }
-}
-
-function tdbRenderLockBanner(groups){
-  const banner=$('tdb-lock-banner'), btn=$('tdb-lock-btn');
-  $('tdb-ref-term').disabled=TDB.locked;
-  $('tdb-target-term').disabled=TDB.locked;
-  tdbUpdateGenerateBtn();
-  if(TDB.locked){
-    banner.style.display='';
-    banner.innerHTML=`<div style="background:var(--ltgrn);border:1px solid #166534;border-radius:6px;padding:9px 12px;margin-top:10px;font-size:12.5px;color:#166534;display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <span>🔒 Pairing set locked ${TDB.lockedAt?('at '+TDB.lockedAt):''} — this is the set Stage 5 reads from. Files, scope, and pairings are frozen.</span>
-      <button class="btn btn-s btn-sm" id="tdb-unlock-btn">Unlock to edit</button>
-    </div>`;
-    $('tdb-unlock-btn').addEventListener('click',()=>{ TDB.locked=false; TDB.lockedAt=null; tdbRenderAll(); tdbRenderFileList(); tdbRenderPrefixGrid(); });
-    btn.style.display='none';
-  }else{
-    banner.style.display='none';
-    btn.style.display='';
-  }
-}
-
-function tdbLock(){
-  const offerings=tdbTargetOfferings();
-  const pending=tdbPendingCount(TDB.groups,offerings);
-  const doLock=()=>{ TDB.locked=true; TDB.lockedAt=new Date().toLocaleString(); tdbRenderAll(); tdbRenderFileList(); tdbRenderPrefixGrid(); };
-  if(pending>0){
-    showCfm('Lock with pending items?', `${pending} item${pending===1?'':'s'} still need a decision — a reference group with no match/delete choice, or a target offering not yet confirmed as new. You can unlock later to keep editing. Lock anyway?`, doLock);
-  }else{
-    doLock();
-  }
-}
-
-function tdbRenderPairTable(groups,offerings){
-  const card=$('tdb-pair-card'), body=$('tdb-pair-tb');
-  if(!TDB.targetTerm||groups.length===0){card.style.display='none';return;}
-  card.style.display='';
-  tdbRenderLockBanner(groups);
-  body.innerHTML='';
-  groups.forEach(g=>{
-    const current=TDB.pairings[g.key]||'';
-    const suggestion=current?null:tdbSuggestMatch(g,offerings);
-    const tr=document.createElement('tr');
-
-    const refHtml=`<div class="tdb-refblock">
-        <div class="xl">${esc(g.xlist||'—')}</div>
-        ${g.rows.map(r=>`<div class="row"><span class="cls">${esc(tdbNorm(r.Class))} ${esc(tdbNorm(r.Sect))}</span> · ${esc(tdbNorm(r['Prim Instructor']))||'—'}</div>`).join('')}
-        ${g.gcl!==null?`<div class="gcl">GCL ${g.gcl}</div>`:''}
-      </div>`;
-
-    const mySibling=tdbSiblingKey(g.rows.find(r=>tdbClassPrefix(r.Class)!=='SOPH')||g.rows[0]);
-    const claimedElsewhere=tdbClaimedMap(g.key);
-    const options=[`<option value="">— not linked yet —</option>`,
-      `<option value="DELETE" ${current==='DELETE'?'selected':''}>Not continuing (Delete)</option>`]
-      .concat(offerings.map(o=>`<option value="${o._uuid}" ${current===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}${claimedElsewhere.has(o._uuid)&&claimedElsewhere.get(o._uuid)!==mySibling?' — ⚠ also matched elsewhere':''}</option>`));
-
-    const matchedOffering = current && current!=='DELETE'
-      ? offerings.find(o=>o._uuid===current) : null;
-
-    const suggestHtml = (suggestion&&!TDB.locked)
-      ? `<button class="btn btn-s" style="font-size:11px;padding:3px 8px;margin-top:6px" data-key="${esc(g.key)}" data-off="${suggestion._uuid}">Use suggested: ${esc(tdbOfferingLabel(suggestion))}</button>`
-      : '';
-
-    const statusClass = current==='DELETE'?'delete':current?'confirmed':'pending';
-    const statusText = current==='DELETE'?'Delete':current?'Confirmed':'Pending';
-
-    tr.innerHTML=`
-      <td>${refHtml}</td>
-      <td>
-        <select class="tdb-match-sel" data-key="${esc(g.key)}" ${TDB.locked?'disabled':''}>${options.join('')}</select>
-        ${suggestHtml}
-      </td>
-      <td>${matchedOffering?esc(tdbOfferingLabel(matchedOffering)):'<span style="color:var(--dgray)">—</span>'}</td>
-      <td>${tdbDiffChips(g,matchedOffering)}</td>
-      <td><span class="tdb-status ${statusClass}">${statusText}</span></td>
-    `;
-    if(!TDB.locked){
-      tr.querySelector('select').addEventListener('change',e=>{
-        TDB.pairings[g.key]=e.target.value; tdbRenderAll();
-      });
-      const sBtn=tr.querySelector('button[data-off]');
-      if(sBtn)sBtn.addEventListener('click',e=>{
-        TDB.pairings[e.target.dataset.key]=e.target.dataset.off; tdbRenderAll();
-      });
-    }
-    body.appendChild(tr);
-  });
-}
-
-function tdbRenderUnmatched(groups,offerings){
-  const card=$('tdb-unmatched-card'), list=$('tdb-unmatched-list');
-  if(!TDB.targetTerm||offerings.length===0){card.style.display='none';return;}
-  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
-  const unmatched=offerings.filter(o=>!claimed.has(o._uuid));
-  if(unmatched.length===0){card.style.display='none';return;}
-  card.style.display='';
-  list.innerHTML='';
-  unmatched.forEach(o=>{
-    const isConfirmed=TDB.addConfirmed.has(o._uuid);
-    const div=document.createElement('div'); div.className='tdb-unmatched-item';
-    div.innerHTML=`<span>${esc(tdbOfferingLabel(o))}</span>
-      ${isConfirmed
-        ? `<span style="display:flex;gap:8px;align-items:center"><span class="tdb-status add">✓ Confirmed new</span>${TDB.locked?'':'<button class=\"btn btn-s btn-sm\" data-undo=\"'+o._uuid+'\">Undo</button>'}</span>`
-        : `<span style="display:flex;gap:8px;align-items:center"><span style="color:var(--dgray)">no reference-term match</span><button class="btn btn-p btn-sm" data-confirm="${o._uuid}" ${TDB.locked?'disabled':''}>Confirm — new this term</button></span>`}
-    `;
-    const cBtn=div.querySelector('button[data-confirm]');
-    if(cBtn)cBtn.addEventListener('click',e=>{ TDB.addConfirmed.add(e.target.dataset.confirm); tdbRenderAll(); });
-    const uBtn=div.querySelector('button[data-undo]');
-    if(uBtn)uBtn.addEventListener('click',e=>{ TDB.addConfirmed.delete(e.target.dataset.undo); tdbRenderAll(); });
-    list.appendChild(div);
-  });
-}
-
-function tdbRenderAll(){
-  const groups=tdbBuildGroups();
-  TDB.groups=groups;
-  const offerings=tdbTargetOfferings();
-  tdbRenderStats(groups,offerings);
-  tdbRenderAnomalies(groups);
-  tdbRenderPairTable(groups,offerings);
-  tdbRenderUnmatched(groups,offerings);
-  $('tdb-draft-card').style.display='';
-  tdbUpdateGenerateBtn();
-}
-
-function tdbRecompute(){
-  tdbRenderFileList();
-  tdbRenderPrefixGrid();
-  if(TDB.files.length===0){
-    $('tdb-stats-row').style.display='none';
-    $('tdb-anomaly-card').style.display='none';
-    $('tdb-pair-card').style.display='none';
-    $('tdb-unmatched-card').style.display='none';
-    $('tdb-draft-card').style.display='none';
-    return;
-  }
-  tdbRenderAll();
-}
-
-function renderTdb(){
-  tdbPopulateTerms();
-  if(!DB||!DB.offerings){ return; }
-  tdbRecompute();
-}
-
-async function tdbHandleFiles(fileArr){
-  for(const file of fileArr){
-    if(!/\.xlsx$/i.test(file.name))continue;
-    try{ TDB.files.push(await tdbParseFile(file)); }
-    catch(err){ alert(`Couldn't parse ${file.name}: ${err.message}`); }
-  }
-  tdbRecompute();
-}
-
-/* ─── STAGE 5: generate the marked-up PSU draft ─────────────────
-   Reads the uploaded Draft template's existing cell objects and mutates
-   only the specific cells that need to change, leaving everything else —
-   formatting, data validation, the other tabs — untouched. Matches by
-   SUBJ+CRSE+SECT against the locked pairing set (verified ~99% reliable
-   against real data; CRNs differ between the template and Cognos snapshots
-   so they're not used as the match key). */
-
-// 0-indexed column positions in the Draft tab — this template has duplicate
-// header text (three "PSU ID" columns, four "INCLUDE/EXCLUDE" columns), so
-// name-based lookup like the Cognos parser uses isn't safe here. Position is
-// verified against the real template's row 1 at parse time instead.
+/* Zero-based column indices into the Draft template. */
 const TDB_DCOL = {
   FLAG:0, XLST:1, NEW_XLST:2, CRN:3, SUBJ:4, CRSE:5, SECT:6, TITLE:7,
-  INSTR_METHOD:10, CREDIT_HRS:14,
-  XLST_SIZE:18, SECTION_SIZE:19,
-  MEETING1:23, PLACEHOLDER:27,
-  PRIMARY_INSTR:28, PRIMARY_PSUID:29
+  CAMPUS:8, SCHED_TYPE:9, INSTR_METHOD:10, GRADE_MODE:11, CREDIT_HRS:14,
+  PRINT:15, XLST_SIZE:18, SECTION_SIZE:19, WLST:20, PRIOR_ENRL:21,
+  MEETING1:23, MEETING2:24, MEETING3:25, MEETING4:26, PLACEHOLDER:27,
+  INSTR1:28, PSUID1:29, PCT1:30, INSTR2:31, PSUID2:32, PCT2:33
 };
-const TDB_DCOL_CHECK = {0:'ADD (A) CHANGE (C) DELETE (D)', 3:'CRN', 4:'SUBJ', 5:'CRSE', 6:'SECT'};
+const TDB_DCOL_CHECK = {
+  0:'ADD (A) CHANGE (C) DELETE (D)', 1:'XLST', 3:'CRN', 4:'SUBJ', 5:'CRSE',
+  6:'SECT', 15:'PRINT Y/N?', 19:'SECTION SIZE', 28:'PRIMARY INSTRUCTOR'
+};
 
+/* Validated against the template's own dropdown for column K. Note
+   "Department Arranged" is unhyphenated — the hyphenated spelling scattered
+   through PSU's rolled-forward rows is legacy and not in the validation
+   list, so it is treated as equivalent when diffing but never written. */
 const TDB_MODALITY_MAP = {
   'In-Person':'In-Person Meeting',
   'Online (async)':'Online - No Scheduled Meetings',
   'Online (sync)':'Online - Scheduled Meetings - Dean Approval Required',
   'Hybrid':'Hybrid',
   'Dept Arranged':'Department Arranged',
-  'By Arrangement':'Department Arranged',   // confirmed with Tim — no distinct option exists
-  'Attend Anywhere':'Department Arranged'   // confirmed with Tim — no distinct option exists
+  'By Arrangement':'Department Arranged',
+  'Attend Anywhere':'Department Arranged'
 };
 function tdbMapModality(m){ return TDB_MODALITY_MAP[m]||''; }
-
-// Verified against the real Winter 2027 template's MEETING #1 dropdown (its
-// validation formula was split across three quoted string literals joined
-// with & — Excel's 255-char limit on a single literal — reconstructed and
-// checked programmatically rather than transcribed by hand.
-const TDB_MEETING_PRESETS = new Set(["MWF 0745-0850","M 0745-0850","W 0745-0850","F 0745-0850","MW 0745-0850","MF 0745-0850","WF 0745-0850","MWF 0900-1005","M 0900-1005","W 0900-1005","F 0900-1005","MW 0900-1005","MF 0900-1005","WF 0900-1005","MWF 1100-1205","M 1100-1205","W 1100-1205","F 1100-1205","MW 1100-1205","MF 1100-1205","WF 1100-1205","MWF 1330-1435","M 1330-1435","W 1330-1435","F 1330-1435","MW 1330-1435","MF 1330-1435","WF 1330-1435","MWF 1530-1635","M 1530-1635","W 1530-1635","F 1530-1635","MW 1530-1635","MF 1530-1635","WF 1530-1635","MW 0900-1040","M 0900-1040","W 0900-1040","TR 0900-1040","T 0900-1040","R 0900-1040","MW 1100-1240","M 1100-1240","W 1100-1240","TR 1100-1240","T 1100-1240","R 1100-1240","MW 1330-1510","M 1330-1510","W 1330-1510","TR 1330-1510","T 1330-1510","R 1330-1510","TR 1530-1710","T 1530-1710","R 1530-1710","MW 1530-1710","M 1530-1710","W 1530-1710","M 1730-2050","T 1730-2050","W 1730-2050","R 1730-2050","F 1730-2050","MW 1730-1910","M 1730-1910","W 1730-1910","TR 1730-1910","T 1730-1910","R 1730-1910","MW 1920-2100","M 1920-2100","W 1920-2100","TR 1920-2100","T 1920-2100","R 1920-2100"]);
-function tdbFindMeetingPreset(offering){
-  const days=tdbDayLetters(offering.days);
-  const m=tdbNorm(offering.time).match(/(\d{1,4})\s*-\s*(\d{1,4})/);
-  if(!days||!m)return null;
-  const pad=n=>n.padStart(4,'0');
-  const candidate=`${days} ${pad(m[1])}-${pad(m[2])}`;
-  return TDB_MEETING_PRESETS.has(candidate)?candidate:null;
+/* Hyphen/spacing-insensitive compare so a legacy "Department-Arranged" in the
+   template doesn't read as a change. PSU's rolled-forward rows also carry a
+   pre-Dean-approval "Online - Scheduled Meetings", which is the same modality
+   under an older label — collapse it to the same key so it isn't rewritten
+   just to append the newer suffix. */
+function tdbIMKey(s){
+  const k=String(s||'').toLowerCase().replace(/[\s-]+/g,'');
+  return k.startsWith('onlinescheduledmeetings')?'onlinescheduledmeetings':k;
 }
 
-/* Single source of truth for matching Draft-template rows to Cognos reference
-   rows. Cognos stores section as a zero-padded string ("001"); the draft
-   template stores it as a plain Excel number (1.0). Course numbers can also
-   arrive as either. Normalize both the same way so "001"/"1"/1.0 all compare
-   equal, and non-numeric section codes ("IP", "0", "S1") compare case-insensitively as-is. */
-function tdbNormKeyPart(v){
-  if(v===null||v===undefined||v==='')return '';
-  if(typeof v==='number')return String(Math.trunc(v));
-  const s=String(v).trim();
-  return /^\d+$/.test(s) ? String(parseInt(s,10)) : s.toUpperCase();
+const tdbNorm=v=>(v===undefined||v===null)?'':String(v).trim();
+const tdbNormH=v=>tdbNorm(v).toLowerCase().replace(/\s+/g,' ');
+function tdbNum(v){
+  const s=tdbNorm(v);
+  if(s==='')return null;
+  const x=Number(s);
+  return isNaN(x)?null:x;
 }
-function tdbMatchKey(prefix,crse,sect){
-  return [String(prefix).toUpperCase(), tdbNormKeyPart(crse), tdbNormKeyPart(sect)].join('|');
+/* Blank cap means zero seats on that side, not "unknown". */
+const tdbCap=v=>{const x=tdbNum(v);return x===null?0:x;};
+
+/* ── day parsing ──────────────────────────────────────────────
+   offerings.days is a comma-separated day list ("M, W" / "T, R, Sa, Su")
+   but the same column also carries free text for anything without a fixed
+   schedule ("Department Arranged", "By arrangement", "Online"). Letter
+   extraction cannot tell those apart — "Department Arranged" contains M, T
+   and R — so parse tokens and reject the whole field if any token isn't a
+   day. A null return means "this is not a day list". */
+const TDB_DAY_TOKENS={M:'M',T:'T',W:'W',R:'R',F:'F',SA:'S',SU:'U',S:'S',U:'U',
+  MON:'M',TUE:'T',WED:'W',THU:'R',FRI:'F',SAT:'S',SUN:'U'};
+const tdbDayOrder='MTWRFSU';
+function tdbDayLetters(raw){
+  const s=tdbNorm(raw);
+  if(!s)return '';
+  const toks=s.split(/[,\s]+/).filter(Boolean);
+  const out=new Set();
+  for(const t of toks){
+    const d=TDB_DAY_TOKENS[t.toUpperCase()];
+    if(!d)return null;
+    out.add(d);
+  }
+  return [...out].sort((a,b)=>tdbDayOrder.indexOf(a)-tdbDayOrder.indexOf(b)).join('');
+}
+const tdbTimeRangeRe=/^\s*(\d{1,4})\s*-\s*(\d{1,4})\s*$/;
+function tdbMeetingString(o){
+  const days=tdbDayLetters(o.days);
+  const m=tdbNorm(o.time).match(tdbTimeRangeRe);
+  if(!days||!m)return '';
+  const pad=x=>x.padStart(4,'0');
+  return `${days} ${pad(m[1])}-${pad(m[2])}`;
+}
+const tdbIsArranged=o=>tdbMapModality(o.modality)==='Department Arranged';
+const tdbNatCompare=(a,b)=>{
+  const pa=String(a??'').match(/^(\d*)(.*)$/), pb=String(b??'').match(/^(\d*)(.*)$/);
+  const na=pa[1]?parseInt(pa[1],10):-1, nb=pb[1]?parseInt(pb[1],10):-1;
+  if(na!==nb)return na-nb;
+  return String(pa[2]).localeCompare(String(pb[2]));
+};
+
+/* ── faculty name resolution ──────────────────────────────────
+   The schedule stores "Conte K."; the Draft template wants "Conte, Kathleen"
+   plus a PSU ID. First and last name come from faculty_directory via
+   DB.instructors. The PSU ID has no home in the schema yet, so it is
+   scraped out of the uploaded template — every instructor already teaching
+   in the term carries theirs. Anyone new comes back without one and lands
+   in the review list rather than being guessed at. */
+function tdbBuildPsuIdMap(rows){
+  const byBoth=new Map(), byLast=new Map();
+  rows.forEach(r=>{
+    [[r.instr1,r.psuid1],[r.instr2,r.psuid2]].forEach(([nm,id])=>{
+      const s=tdbNorm(nm);
+      if(!s||!s.includes(',')||id===null||id==='')return;
+      const [last,first]=s.split(',').map(x=>x.trim());
+      const k=last.toLowerCase();
+      byBoth.set(k+'|'+(first[0]||'').toLowerCase(),{name:s,id});
+      if(!byLast.has(k))byLast.set(k,new Set());
+      byLast.get(k).add(JSON.stringify({name:s,id}));
+    });
+  });
+  return {byBoth,byLast};
+}
+/* "Hesslink Jr. R." -> last "Hesslink", initial "R" */
+function tdbSplitDisplayName(disp){
+  const s=tdbNorm(disp);
+  const m=s.match(/^(.*?)\s+([A-Za-z]{1,2})\.$/);
+  if(!m)return null;
+  return {last:m[1].replace(/\s+(Jr\.?|Sr\.?|I{2,3}|IV)$/i,'').trim(), initial:m[2]};
+}
+function tdbResolveInstructor(disp){
+  const s=tdbNorm(disp);
+  if(!s)return {name:'',id:'',unresolved:false};
+  const parts=tdbSplitDisplayName(s);
+  // TBD OHSU / TBD PSU are scheduling-only sentinels, not real people.
+  if(/^TBD\b/i.test(s))return {name:'',id:'',unresolved:false,placeholder:true};
+  const map=TDB.psuIds||{byBoth:new Map(),byLast:new Map()};
+  if(parts){
+    const hit=map.byBoth.get(parts.last.toLowerCase()+'|'+parts.initial[0].toLowerCase());
+    if(hit)return {name:hit.name,id:hit.id,unresolved:false};
+    // Fall back to last name alone, but only when it is unambiguous — the
+    // schedule's initial and the registrar's legal first name disagree often
+    // enough (Browning A. / Browning, Nicole) that requiring both loses real
+    // matches, while two Carlsons make last-name-only unsafe on its own.
+    const set=map.byLast.get(parts.last.toLowerCase());
+    if(set&&set.size===1){
+      const rec=JSON.parse([...set][0]);
+      return {name:rec.name,id:rec.id,unresolved:false};
+    }
+  }
+  // Not in the template: build "Last, First" from the directory so the name
+  // is at least right, and leave the ID for manual entry.
+  const inst=(DB.instructors||[]).find(i=>i.displayName===s);
+  const name=inst&&inst.lastName?`${inst.lastName}, ${inst.firstName}`.trim().replace(/,$/,''):s;
+  return {name,id:'',unresolved:true};
 }
 
+/* ── draft template parsing ─────────────────────────────────── */
 function tdbParseDraftTemplate(file){
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
@@ -3582,19 +3102,39 @@ function tdbParseDraftTemplate(file){
         const problems=[];
         Object.entries(TDB_DCOL_CHECK).forEach(([c,label])=>{
           const cell=ws[XLSX.utils.encode_cell({r:0,c:Number(c)})];
-          const val=cell?String(cell.v||'').trim():'';
-          if(val!==label)problems.push(`column ${XLSX.utils.encode_col(Number(c))} expected "${label}", found "${val||'(blank)'}"`);
+          const v=cell?String(cell.v||'').trim():'';
+          if(v!==label)problems.push(`column ${XLSX.utils.encode_col(Number(c))} expected "${label}", found "${v||'(blank)'}"`);
         });
-        if(problems.length){ reject(new Error("This file's layout doesn't match the expected Draft template — "+problems.join('; '))); return; }
+        if(problems.length){reject(new Error("This file's layout doesn't match the expected Draft template — "+problems.join('; ')));return;}
         const range=XLSX.utils.decode_range(ws['!ref']);
         const rows=[];
         for(let r=1;r<=range.e.r;r++){
           const get=c=>{const cell=ws[XLSX.utils.encode_cell({r,c})];return cell?cell.v:null;};
           const subj=get(TDB_DCOL.SUBJ);
           if(!subj)continue;
-          rows.push({r, subj:tdbNorm(subj), crse:get(TDB_DCOL.CRSE), sect:get(TDB_DCOL.SECT), key:tdbMatchKey(subj,get(TDB_DCOL.CRSE),get(TDB_DCOL.SECT))});
+          rows.push({
+            r,
+            subj:tdbNorm(subj).toUpperCase(),
+            crse:tdbNorm(get(TDB_DCOL.CRSE)),
+            sect:tdbNorm(get(TDB_DCOL.SECT)),
+            xlst:tdbNorm(get(TDB_DCOL.XLST)),
+            crn:tdbNorm(get(TDB_DCOL.CRN)),
+            title:tdbNorm(get(TDB_DCOL.TITLE)),
+            im:tdbNorm(get(TDB_DCOL.INSTR_METHOD)),
+            credits:tdbNum(get(TDB_DCOL.CREDIT_HRS)),
+            print:tdbNorm(get(TDB_DCOL.PRINT)),
+            xlstSize:tdbNum(get(TDB_DCOL.XLST_SIZE)),
+            sectionSize:tdbNum(get(TDB_DCOL.SECTION_SIZE)),
+            wlst:tdbNum(get(TDB_DCOL.WLST)),
+            meet1:tdbNorm(get(TDB_DCOL.MEETING1)),
+            extraMeetings:[TDB_DCOL.MEETING2,TDB_DCOL.MEETING3,TDB_DCOL.MEETING4]
+              .map(c=>tdbNorm(get(c))).filter(Boolean),
+            placeholder:tdbNorm(get(TDB_DCOL.PLACEHOLDER)),
+            instr1:tdbNorm(get(TDB_DCOL.INSTR1)), psuid1:get(TDB_DCOL.PSUID1),
+            instr2:tdbNorm(get(TDB_DCOL.INSTR2)), psuid2:get(TDB_DCOL.PSUID2)
+          });
         }
-        resolve({wb, ws, sheetName, rows, name:file.name, lastRow:range.e.r});
+        resolve({wb,ws,sheetName,rows,name:file.name,lastRow:range.e.r});
       }catch(err){reject(err);}
     };
     reader.onerror=reject;
@@ -3602,16 +3142,314 @@ function tdbParseDraftTemplate(file){
   });
 }
 
+/* ── grouping ─────────────────────────────────────────────────
+   Column B is the group. Rows without a code start as singletons, then a
+   SOPH singleton whose title names a specific course ("HSMP 509 PRACTICE
+   EXPERIENCE") is folded into that course's group — Banner's crosslist link
+   is simply missing on those, and the pair still needs a shared code, which
+   is what NEW XLST = Y is for. */
+const TDB_TITLE_REF=/^([A-Z]{2,6})\s?(\d{3,4}[A-Z]?)/;
+function tdbTitleRef(title){
+  const m=tdbNorm(title).toUpperCase().match(TDB_TITLE_REF);
+  return m?{prefix:m[1],number:m[2]}:null;
+}
+function tdbGroupRef(g){
+  const psu=g.rows.find(r=>r.subj!=='SOPH');
+  if(psu)return {prefix:psu.subj,number:psu.crse};
+  const ref=tdbTitleRef(g.rows[0].title);
+  return ref||{prefix:'',number:''};
+}
+function tdbBuildDraftGroups(rows){
+  const byCode=new Map(); const singles=[];
+  rows.forEach(r=>{
+    if(r.xlst){
+      if(!byCode.has(r.xlst))byCode.set(r.xlst,{xlst:r.xlst,rows:[],newCode:false});
+      byCode.get(r.xlst).rows.push(r);
+    }else singles.push({xlst:'',rows:[r],newCode:false});
+  });
+  let groups=[...byCode.values()].concat(singles);
+
+  // Fold orphan SOPH shells into the PSU group they name.
+  const orphans=groups.filter(g=>g.rows.length===1&&!g.xlst&&g.rows[0].subj==='SOPH'&&tdbTitleRef(g.rows[0].title));
+  const consumed=new Set();
+  orphans.forEach(og=>{
+    const ref=tdbTitleRef(og.rows[0].title);
+    const hosts=groups.filter(g=>{
+      if(g===og||consumed.has(g))return false;
+      const psu=g.rows.filter(r=>r.subj!=='SOPH');
+      if(!psu.length)return false;
+      if(psu[0].subj!==ref.prefix)return false;
+      if(!psu.some(r=>tdbNormKeyPart(r.crse)===tdbNormKeyPart(ref.number)))return false;
+      return !g.rows.some(r=>r.subj==='SOPH');   // only a group still missing its SOPH side
+    });
+    if(hosts.length===1){
+      hosts[0].rows.push(og.rows[0]);
+      hosts[0].newCode=true;                     // needs a fresh XLST code + NEW XLST = Y
+      consumed.add(og);
+    }else if(hosts.length>1){
+      og.reviewNote=`Title names ${ref.prefix} ${ref.number}, but ${hosts.length} sections of it are missing a SOPH row — pair by hand`;
+    }
+  });
+  groups=groups.filter(g=>!consumed.has(g));
+
+  groups.forEach(g=>{
+    g.rows.sort((a,b)=>{
+      if((a.subj==='SOPH')!==(b.subj==='SOPH'))return a.subj==='SOPH'?1:-1;
+      return tdbNatCompare(a.crse,b.crse)||tdbNatCompare(a.sect,b.sect);
+    });
+    g.ref=tdbGroupRef(g);
+    g.key=g.xlst||('row:'+g.rows[0].r);
+    g.credits=g.rows.reduce((c,r)=>c===null?r.credits:c,null);
+  });
+  groups.sort((a,b)=>
+    (a.ref.prefix||'').localeCompare(b.ref.prefix||'')||
+    tdbNatCompare(a.ref.number,b.ref.number)||
+    tdbNatCompare(a.rows[0].sect,b.rows[0].sect));
+  return groups;
+}
+function tdbNormKeyPart(v){
+  const s=tdbNorm(v);
+  if(s==='')return '';
+  return /^\d+$/.test(s)?String(parseInt(s,10)):s.toUpperCase();
+}
+
+/* ── target-term offerings ────────────────────────────────────
+   full_name carries the section marker the draft needs: "PHE - 504PE" is
+   section PE*, "PUBH - 590-PHP" is PHP*, "PHE - 450-1" is plain section 1. */
+const TDB_SECT_SUFFIX=new Set(['IP','PE','PHP']);
+const TDB_COURSE_RE=/^([A-Z]+)\s*-\s*(\d+)([A-Za-z]*)(?:\/(\d+)([A-Za-z]*))?(?:-([A-Za-z0-9]+))?\s*:/;
+function tdbParseFullName(fullName,fallbackPrefix,fallbackNumber){
+  const m=tdbNorm(fullName).match(TDB_COURSE_RE);
+  if(!m)return {prefix:fallbackPrefix,number:fallbackNumber,number2:'',secMark:'',sectIdx:''};
+  let [,pre,num,suf,num2,suf2,sect]=m;
+  let secMark='';
+  if(suf&&TDB_SECT_SUFFIX.has(suf.toUpperCase())){secMark=suf.toUpperCase();suf='';}
+  if(sect&&/^[A-Za-z]+$/.test(sect)&&TDB_SECT_SUFFIX.has(sect.toUpperCase())){secMark=sect.toUpperCase();sect='';}
+  return {prefix:pre,number:num+(suf||''),number2:num2?num2+(suf2||''):'',secMark,sectIdx:sect||''};
+}
+function tdbTargetOfferings(){
+  if(!DB||!DB.offerings||!TDB.targetTerm)return [];
+  const byId={}; (DB.courses||[]).forEach(c=>{byId[c.id]=c;});
+  return DB.offerings.filter(o=>o.term===TDB.targetTerm).map(o=>{
+    const c=byId[o.courseId]||{};
+    const parsed=tdbParseFullName(o.fullName,o.prefix,o.courseNumber);
+    return Object.assign({},o,{
+      number2:c.number2||parsed.number2||'',
+      secMark:parsed.secMark, sectIdx:parsed.sectIdx,
+      courseTitle:c.title||'', creditsRaw:c.credits||''
+    });
+  }).sort((a,b)=>
+    (a.prefix||'').localeCompare(b.prefix||'')||
+    tdbNatCompare(a.courseNumber,b.courseNumber)||
+    tdbNatCompare(a.sectIdx,b.sectIdx));
+}
+/* "1-4" -> [1,2,3,4]; "3" -> null (fixed credit, no expansion) */
+function tdbCreditRange(raw){
+  const m=tdbNorm(raw).match(/^(\d+)\s*[-–]\s*(\d+)$/);
+  if(!m)return null;
+  const lo=parseInt(m[1],10), hi=parseInt(m[2],10);
+  if(!(hi>lo)||hi-lo>20)return null;
+  const out=[]; for(let i=lo;i<=hi;i++)out.push(i);
+  return out;
+}
+/* Variable-credit courses become one Banner section per credit value. The
+   naming convention comes from the offering's own section marker — PE1..PE4,
+   PHP1..PHP4 — and falls back to bare numbers (PHE 404 sections 1-12). */
+function tdbSectionCodeFor(offering,credit){
+  return offering.secMark?`${offering.secMark}${credit}`:String(credit);
+}
+
+/* ── matching a draft group to an offering ────────────────── */
+function tdbCandidates(group,offerings){
+  const {prefix,number}=group.ref;
+  if(!prefix)return [];
+  return offerings.filter(o=>
+    (o.prefix||'').toUpperCase()===prefix&&
+    (tdbNormKeyPart(o.courseNumber)===tdbNormKeyPart(number)||
+     tdbNormKeyPart(o.number2)===tdbNormKeyPart(number)));
+}
+/* Suggestion only — the person confirms every pairing. Tiebreakers run in
+   order of how much evidence they carry: an exact meeting pattern is close
+   to decisive, cap totals nearly so, then modality, then surname. */
+function tdbSuggestMatch(group,offerings){
+  const cands=tdbCandidates(group,offerings);
+  if(cands.length<=1)return cands[0]||null;
+  const first=group.rows[0];
+  const exact=cands.filter(o=>tdbMeetingString(o)&&tdbMeetingString(o)===first.meet1);
+  if(exact.length===1)return exact[0];
+  const groupTotal=group.rows.reduce((s,r)=>s+(r.sectionSize||0),0);
+  const byCap=cands.filter(o=>tdbCap(o.totalCap)===groupTotal);
+  if(byCap.length===1)return byCap[0];
+  const byMode=cands.filter(o=>tdbIMKey(tdbMapModality(o.modality))===tdbIMKey(first.im));
+  if(byMode.length===1)return byMode[0];
+  const surnames=group.rows.map(r=>tdbNorm(r.instr1).split(',')[0].toLowerCase()).filter(Boolean);
+  const byName=cands.filter(o=>{
+    const parts=tdbSplitDisplayName(o.instructor1);
+    return parts&&surnames.includes(parts.last.toLowerCase());
+  });
+  if(byName.length===1)return byName[0];
+  return null;   // genuinely ambiguous — make the person choose
+}
+
+/* ── per-row target values ────────────────────────────────────
+   Only columns we have real evidence for are computed. Restrictions,
+   billing, fees, campus code, grade mode and everything else stay exactly
+   as PSU sent them. */
+function tdbSlotOf(row,offering){
+  if(!offering.number2)return 1;
+  if(row.subj!=='SOPH')
+    return tdbNormKeyPart(row.crse)===tdbNormKeyPart(offering.number2)?2:1;
+  const ref=tdbTitleRef(row.title);
+  return (ref&&tdbNormKeyPart(ref.number)===tdbNormKeyPart(offering.number2))?2:1;
+}
+function tdbRowTargets(row,offering,group){
+  const t={};
+  const isSoph=row.subj==='SOPH';
+  const slot=tdbSlotOf(row,offering);
+  const crosslisted=group.rows.length>1;
+  const hasSplit=[offering.ohsuCap1,offering.ohsuCap2,offering.psuCap1,offering.psuCap2]
+    .some(v=>tdbNorm(v)!=='');
+
+  // Caps. With no split recorded anywhere on the offering there is nothing
+  // to apportion, so the template's existing split is left alone rather
+  // than being flattened to zero.
+  if(crosslisted){
+    t[TDB_DCOL.XLST_SIZE]=tdbCap(offering.totalCap);
+    if(hasSplit){
+      t[TDB_DCOL.SECTION_SIZE]=isSoph
+        ? tdbCap(slot===1?offering.ohsuCap1:offering.ohsuCap2)
+        : tdbCap(slot===1?offering.psuCap1:offering.psuCap2);
+    }
+  }else{
+    // No OHSU side at all: the crosslist is being dissolved.
+    t[TDB_DCOL.XLST_SIZE]='';
+    t[TDB_DCOL.SECTION_SIZE]=tdbCap(offering.totalCap);
+    if(row.xlst){ t[TDB_DCOL.XLST]=''; t[TDB_DCOL.NEW_XLST]='N'; }
+  }
+
+  t[TDB_DCOL.INSTR_METHOD]=tdbMapModality(offering.modality);
+
+  // Meetings. A row already carrying MEETING #2-#4 is a multi-pattern
+  // section the schedule can't represent (one days list, one time), so its
+  // meeting cells are treated as hand-maintained and never rewritten.
+  // ARRNGD is only ever stamped on rows we create — PSU's own arranged rows
+  // leave the placeholder column blank and there's no reason to churn them.
+  if(row.extraMeetings.length===0)t[TDB_DCOL.MEETING1]=tdbMeetingString(offering);
+
+  const i1=tdbResolveInstructor(offering.instructor1);
+  const i2=tdbResolveInstructor(offering.instructor2);
+  t[TDB_DCOL.INSTR1]=i1.name; t[TDB_DCOL.PSUID1]=i1.id;
+  t[TDB_DCOL.INSTR2]=i2.name; t[TDB_DCOL.PSUID2]=i2.id;
+  t._unresolved=[i1,i2].filter(x=>x.unresolved).map(x=>x.name);
+
+  // Print and waitlist both hang off the section size, so they are only
+  // decided when a size was actually computed. Where the offering records no
+  // split there is nothing to apportion and the template's own numbers are
+  // left in place — rewriting print or waitlist off a stale size would be
+  // guessing. tdbValidate raises that case so the schedule gets fixed.
+  const size=t[TDB_DCOL.SECTION_SIZE];
+  if(isSoph){
+    t[TDB_DCOL.PRINT]='N';                 // SOPH shells never appear in the printed schedule
+    t[TDB_DCOL.WLST]=0;
+  }else if(size!==undefined){
+    // A section with no seats is never printed, whatever the schedule says.
+    const prints=size>0&&(offering.printStatus||'Print')==='Print';
+    t[TDB_DCOL.PRINT]=prints?'Y':'N';
+    // Waitlist floor applies to sections that actually print — arranged and
+    // no-print sections (integrative projects, practica) carry none.
+    if(prints&&(row.wlst||0)<TDB_WLST_FLOOR)t[TDB_DCOL.WLST]=TDB_WLST_FLOOR;
+  }
+
+  return t;
+}
+/* A cell counts as changed only when the value really differs — numbers
+   compare numerically, instructional method ignores the hyphen. */
+function tdbCellDiffers(col,current,target){
+  if(target===undefined)return false;
+  if(col===TDB_DCOL.INSTR_METHOD)return tdbIMKey(current)!==tdbIMKey(target);
+  const a=tdbNorm(current), b=tdbNorm(target);
+  if(a===''&&b==='')return false;
+  const na=tdbNum(a), nb=tdbNum(b);
+  if(na!==null&&nb!==null)return na!==nb;
+  return a!==b;
+}
+function tdbRowCurrent(row,col){
+  switch(col){
+    case TDB_DCOL.XLST: return row.xlst;
+    case TDB_DCOL.NEW_XLST: return '';
+    case TDB_DCOL.XLST_SIZE: return row.xlstSize;
+    case TDB_DCOL.SECTION_SIZE: return row.sectionSize;
+    case TDB_DCOL.INSTR_METHOD: return row.im;
+    case TDB_DCOL.MEETING1: return row.meet1;
+    case TDB_DCOL.PLACEHOLDER: return row.placeholder;
+    case TDB_DCOL.INSTR1: return row.instr1;
+    case TDB_DCOL.PSUID1: return row.psuid1;
+    case TDB_DCOL.INSTR2: return row.instr2;
+    case TDB_DCOL.PSUID2: return row.psuid2;
+    case TDB_DCOL.PRINT: return row.print;
+    case TDB_DCOL.WLST: return row.wlst;
+    case TDB_DCOL.SECT: return row.sect;
+    case TDB_DCOL.CREDIT_HRS: return row.credits;
+    default: return '';
+  }
+}
+
+/* ── new crosslist codes ──────────────────────────────────────
+   Placeholder codes for pairs PSU hasn't linked yet. PSU assigns the real
+   two-character code on their end; AAA/BBB/CCC just has to be unique within
+   the file and obviously not one of theirs. */
+function tdbCodeGenerator(existing){
+  const used=new Set(existing);
+  let i=0;
+  return ()=>{
+    for(;i<26*26;i++){
+      const a=String.fromCharCode(65+(i%26)), rep=Math.floor(i/26)+3;
+      const code=a.repeat(rep);
+      if(!used.has(code)){used.add(code);i++;return code;}
+    }
+    return 'ZZZ';
+  };
+}
+
+/* ── section numbering for added sections ─────────────────────
+   No institutional convention exists. New sections are placed in a
+   deliberately separate block starting at 11 so nobody reads an added
+   section as a renumbering of an existing one, and the choice is
+   reproducible when a course already has several sections. */
+const TDB_NEW_SECT_FLOOR=11;
+/* Minimum waitlist on any PSU section that prints. */
+const TDB_WLST_FLOOR=5;
+function tdbNextSectionNumber(taken){
+  let n=TDB_NEW_SECT_FLOOR;
+  while(taken.has(String(n)))n++;
+  taken.add(String(n));
+  return n;
+}
+
+/* ── SOPH shell rows ──────────────────────────────────────────
+   The SOPH 3 shell is how OHSU students register through PSU Banner, so an
+   added PSU section with OHSU seats needs one. */
+function tdbSophTitle(prefix,number,title){
+  return `${prefix} ${number} ${tdbNorm(title)}`.toUpperCase();
+}
+
+/* ── generation ─────────────────────────────────────────────── */
 const TDB_YELLOW_FILL={fill:{patternType:'solid',fgColor:{rgb:'FFFF00'},bgColor:{rgb:'FFFF00'}}};
 function tdbWriteCell(ws,r,c,value,highlight){
   const ref=XLSX.utils.encode_cell({r,c});
   const existing=ws[ref];
+  const isNum=typeof value==='number';
+  if(value===''||value===null||value===undefined){
+    if(existing){existing.v='';existing.t='s';delete existing.f;delete existing.w;
+      if(highlight)existing.s=TDB_YELLOW_FILL;}
+    return;
+  }
   if(existing){
-    existing.v=value; existing.t=typeof value==='number'?'n':'s';
+    existing.v=value; existing.t=isNum?'n':'s';
     delete existing.f; delete existing.w;
     if(highlight)existing.s=TDB_YELLOW_FILL;
   }else{
-    ws[ref]={t:typeof value==='number'?'n':'s', v:value};
+    ws[ref]={t:isNum?'n':'s',v:value};
     if(highlight)ws[ref].s=TDB_YELLOW_FILL;
     const range=XLSX.utils.decode_range(ws['!ref']);
     if(r>range.e.r)range.e.r=r;
@@ -3620,127 +3458,395 @@ function tdbWriteCell(ws,r,c,value,highlight){
   }
 }
 
-function tdbCognosRowIndex(){
-  const idx=new Map();
-  (TDB.groups||[]).forEach(g=>{
-    g.rows.forEach(row=>{
-      idx.set(tdbMatchKey(tdbClassPrefix(row.Class),tdbClassNumber(row.Class),row.Sect),{row,group:g});
-    });
-  });
-  return idx;
-}
-
-/* Returns the list of {col,value,needsReview,note} cell changes for a Change
-   row, or [] if nothing meaningful differs. Only writes fields we have real
-   evidence about (cap, instructor, instructional method, meeting time) —
-   everything else in the row (restrictions, billing, fees, grade mode...)
-   is left exactly as the template already has it. */
-function tdbComputeDraftDiff(cogRow, offering, isSoph){
-  const changes=[];
-  const sideCap=Number(isSoph?offering.ohsuCap1:offering.psuCap1);
-  const cap=(!isNaN(sideCap)&&sideCap>0)?sideCap:Number(offering.totalCap);
-  const refCap=Number(cogRow['Auth Size']);
-  if(!isNaN(cap)&&refCap!==cap){
-    changes.push({col:TDB_DCOL.XLST_SIZE, value:Number(offering.totalCap)||''});
-    changes.push({col:TDB_DCOL.SECTION_SIZE, value:cap});
-  }
-  const refInstr=tdbNorm(cogRow['Prim Instructor']);
-  const tgtInstr=tdbNorm(offering.instructor1);
-  const instrChanged = refInstr && tgtInstr && !tgtInstr.toLowerCase().includes(refInstr.toLowerCase().split(' ').pop());
-  if(instrChanged){
-    changes.push({col:TDB_DCOL.PRIMARY_INSTR, value:tgtInstr});
-    changes.push({col:TDB_DCOL.PRIMARY_PSUID, value:'', needsReview:true, note:'New/changed instructor — PSU ID needs manual entry (not available in the scheduling app)'});
-  }
-  if(!tdbMeetingsMatch(cogRow,offering)){
-    const mapped=tdbMapModality(offering.modality);
-    if(mapped)changes.push({col:TDB_DCOL.INSTR_METHOD, value:mapped});
-    const preset=tdbFindMeetingPreset(offering);
-    if(preset){
-      changes.push({col:TDB_DCOL.MEETING1, value:preset});
-    }else if(tdbClassifyOffering(offering).kind==='arranged'){
-      changes.push({col:TDB_DCOL.PLACEHOLDER, value:'ARRNGD'});
-    }else if(tdbClassifyOffering(offering).kind!=='online'){
-      changes.push({col:TDB_DCOL.MEETING1, value:'', needsReview:true, note:"Meeting time doesn't match a preset MEETING option — set manually"});
-    }
-  }
-  return changes;
-}
-
 function tdbGenerateDraft(){
   if(!TDB.draftFile){alert('Upload the Draft template first.');return;}
-  if(!TDB.locked){alert('Lock the pairing set first.');return;}
-  const {wb,ws,rows}=TDB.draftFile;
+  if(!TDB.locked){alert('Lock the review set first.');return;}
+  const {wb,ws}=TDB.draftFile;
   const offerings=tdbTargetOfferings();
-  const offeringById={}; offerings.forEach(o=>offeringById[o._uuid]=o);
-  const cognosIdx=tdbCognosRowIndex();
+  const byUuid={}; offerings.forEach(o=>{byUuid[o._uuid]=o;});
+  const summary={unchanged:0,changed:0,deleted:0,added:0,review:[],problems:[]};
+  const nextCode=tdbCodeGenerator(TDB.draftFile.rows.map(r=>r.xlst).filter(Boolean));
 
-  const summary={unchanged:0,changed:0,deleted:0,added:0,noMatch:[],needsReview:[]};
+  // Section numbers already in play, per prefix+course, so added sections
+  // don't collide with anything PSU already sent.
+  const takenSects=new Map();
+  const takenKey=(p,n)=>`${p}|${tdbNormKeyPart(n)}`;
+  TDB.draftFile.rows.forEach(r=>{
+    const k=takenKey(r.subj,r.crse);
+    if(!takenSects.has(k))takenSects.set(k,new Set());
+    takenSects.get(k).add(tdbNormKeyPart(r.sect));
+  });
+  const takenFor=(p,n)=>{
+    const k=takenKey(p,n);
+    if(!takenSects.has(k))takenSects.set(k,new Set());
+    return takenSects.get(k);
+  };
 
-  rows.forEach(dr=>{
-    const hit=cognosIdx.get(dr.key);
-    if(!hit){ summary.noMatch.push(dr); return; }
-    const {row:cogRow,group}=hit;
+  // Subjects switched off in the scope card leave the PSU schedule entirely,
+  // and so do the SOPH shells that pair with them.
+  (TDB.outOfScope||[]).forEach(group=>{
+    group.rows.forEach(row=>tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
+    summary.deleted+=group.rows.length;
+  });
+
+  TDB.groups.forEach(group=>{
     const decision=TDB.pairings[group.key];
     if(decision==='DELETE'){
-      tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'D - Delete Section',true);
-      summary.deleted++; return;
-    }
-    if(!decision){ summary.needsReview.push({dr,note:'Reference group has no decision — unexpected in a fully-locked set'}); return; }
-    const offering=offeringById[decision];
-    if(!offering){ summary.needsReview.push({dr,note:'Matched offering not found in current target-term data'}); return; }
-
-    const nonSophNums=new Set(group.rows.filter(r=>tdbClassPrefix(r.Class)!=='SOPH').map(r=>tdbClassNumber(r.Class)));
-    if(nonSophNums.size>1){
-      summary.needsReview.push({dr,note:'Dual-listed crosslist (multiple course numbers sharing one group) — cap split needs manual review, left untouched'});
+      group.rows.forEach(row=>tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
+      summary.deleted+=group.rows.length;
       return;
     }
+    const offering=byUuid[decision];
+    if(!offering){
+      summary.review.push({label:tdbGroupLabel(group),note:'No offering paired — left untouched'});
+      return;
+    }
+    // A pair PSU never linked needs a placeholder code on every row.
+    let code=null;
+    if(group.newCode)code=nextCode();
 
-    const isSoph=tdbClassPrefix(cogRow.Class)==='SOPH';
-    const changes=tdbComputeDraftDiff(cogRow,offering,isSoph);
-    if(changes.length===0){ summary.unchanged++; return; }
-    tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'C - Change Existing',true);
-    changes.forEach(ch=>tdbWriteCell(ws,dr.r,ch.col,ch.value,true));
-    const reviewNotes=changes.filter(c=>c.needsReview).map(c=>c.note);
-    if(reviewNotes.length)summary.needsReview.push({dr,note:reviewNotes.join('; ')});
-    summary.changed++;
+    group.rows.forEach(row=>{
+      const t=tdbRowTargets(row,offering,group);
+
+      // Variable-credit sections carry their credit value in the section
+      // code (PE2 = 2 credits). Rename when the row drifts from that.
+      const credits=tdbCreditRange(offering.creditsRaw);
+      if(credits&&row.credits!==null&&offering.secMark){
+        const want=tdbSectionCodeFor(offering,row.credits);
+        if(tdbNormKeyPart(row.sect)!==tdbNormKeyPart(want))t[TDB_DCOL.SECT]=want;
+      }
+      if(code!==null){ t[TDB_DCOL.XLST]=code; t[TDB_DCOL.NEW_XLST]='Y'; }
+
+      const writes=[];
+      Object.keys(t).forEach(k=>{
+        if(k.startsWith('_'))return;
+        const col=Number(k);
+        if(tdbCellDiffers(col,tdbRowCurrent(row,col),t[col]))writes.push([col,t[col]]);
+      });
+      if(writes.length===0){ summary.unchanged++; return; }
+      tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'C - Change Existing',true);
+      writes.forEach(([col,v])=>tdbWriteCell(ws,row.r,col,v,true));
+      if(t._unresolved&&t._unresolved.length)
+        summary.review.push({label:tdbGroupLabel(group),
+          note:`PSU ID unknown for ${t._unresolved.join(', ')} — enter by hand`});
+      summary.changed++;
+    });
   });
 
-  // Confirmed "Add" offerings not represented by any existing draft row get appended
-  // at the bottom. Only fields we actually have data for get written; anything we
-  // don't have a source for (restrictions, billing, fees, PSU ID, ranged credit
-  // hours, non-preset meeting times...) is simply left blank rather than guessed.
-  let nextRow=(TDB.draftFile.lastRow||rows.reduce((m,r)=>Math.max(m,r.r),0))+1;
-  const courseById={}; (DB.courses||[]).forEach(c=>{courseById[c.id]=c;});
-  TDB.addConfirmed.forEach(uuid=>{
-    const offering=offeringById[uuid];
-    if(!offering)return;
-    const course=courseById[offering.courseId]||{};
-    const w=(col,val)=>{ if(val!==''&&val!=null) tdbWriteCell(ws,nextRow,col,val,true); };
+  // ── added sections ──
+  let nextRow=(TDB.draftFile.lastRow||0)+1;
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
+  const addRows=[];
+
+  // Offerings with no draft group at all.
+  offerings.forEach(o=>{
+    if(claimed.has(o._uuid))return;
+    if(!TDB.addConfirmed.has(o._uuid))return;
+    const credits=tdbCreditRange(o.creditsRaw);
+    const numbers=[o.courseNumber].concat(o.number2?[o.number2]:[]);
+    if(credits&&o.secMark){
+      credits.forEach(cr=>addRows.push({offering:o,number:o.courseNumber,slot:1,credit:cr,
+        sect:tdbSectionCodeFor(o,cr)}));
+    }else{
+      numbers.forEach((num,i)=>addRows.push({offering:o,number:num,slot:i+1,credit:null,
+        sect:o.sectIdx||''}));
+    }
+  });
+
+  // Offerings already paired but missing some of their credit sections.
+  TDB.groups.forEach(group=>{
+    const o=byUuid[TDB.pairings[group.key]];
+    if(!o||!o.secMark)return;
+    const credits=tdbCreditRange(o.creditsRaw);
+    if(!credits)return;
+    const have=new Set();
+    TDB.groups.forEach(g2=>{
+      if(TDB.pairings[g2.key]!==o._uuid)return;
+      g2.rows.forEach(r=>{ if(r.credits!==null)have.add(r.credits); });
+    });
+    credits.forEach(cr=>{
+      if(have.has(cr))return;
+      if(addRows.some(a=>a.offering===o&&a.credit===cr))return;
+      addRows.push({offering:o,number:o.courseNumber,slot:1,credit:cr,sect:tdbSectionCodeFor(o,cr)});
+    });
+  });
+
+  addRows.sort((a,b)=>
+    (a.offering.prefix||'').localeCompare(b.offering.prefix||'')||
+    tdbNatCompare(a.number,b.number)||
+    tdbNatCompare(a.sect,b.sect));
+
+  addRows.forEach(a=>{
+    const o=a.offering;
+    const psuCap=tdbCap(a.slot===1?o.psuCap1:o.psuCap2);
+    const ohsuCap=tdbCap(a.slot===1?o.ohsuCap1:o.ohsuCap2);
+    const needsShell=ohsuCap>0;
+    const total=tdbCap(o.totalCap);
+    const i1=tdbResolveInstructor(o.instructor1);
+    const i2=tdbResolveInstructor(o.instructor2);
+    let sect=a.sect;
+    if(!sect&&!a.credit){
+      // Plain new section of an existing course — take the next number in
+      // the reserved block so it reads as new, not as a renumber.
+      const taken=takenFor(o.prefix,a.number);
+      sect=taken.size?String(tdbNextSectionNumber(taken)):'';
+    }
+    const code=needsShell?nextCode():'';
+    const meet=tdbMeetingString(o);
+    const w=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(ws,nextRow,col,v,true); };
+
     w(TDB_DCOL.FLAG,'A - Add Section');
-    w(TDB_DCOL.NEW_XLST,'Y');
-    w(TDB_DCOL.SUBJ,offering.prefix||'');
-    w(TDB_DCOL.CRSE,Number(offering.courseNumber)||offering.courseNumber||'');
-    w(TDB_DCOL.SECT,1);
-    w(TDB_DCOL.TITLE,course.title||'');
-    w(TDB_DCOL.INSTR_METHOD,tdbMapModality(offering.modality));
-    w(TDB_DCOL.XLST_SIZE,Number(offering.totalCap)||'');
-    w(TDB_DCOL.SECTION_SIZE,Number(offering.totalCap)||'');
-    w(TDB_DCOL.PRIMARY_INSTR,offering.instructor1||'');
-    const preset=tdbFindMeetingPreset(offering);
-    const kind=tdbClassifyOffering(offering).kind;
-    if(preset) w(TDB_DCOL.MEETING1,preset);
-    else if(kind==='arranged') w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
-    // else: meeting time doesn't match a preset and isn't arranged/online — left blank
-    if(course.credits!=null && !/[-–]/.test(String(course.credits))) w(TDB_DCOL.CREDIT_HRS,Number(course.credits)||course.credits);
-    // ranged/missing credit hours — left blank
-    summary.added++;
-    nextRow++;
+    if(code){ w(TDB_DCOL.XLST,code); w(TDB_DCOL.NEW_XLST,'Y'); w(TDB_DCOL.XLST_SIZE,total); }
+    w(TDB_DCOL.SUBJ,o.prefix||'');
+    w(TDB_DCOL.CRSE,tdbNum(a.number)!==null?tdbNum(a.number):a.number);
+    w(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
+    w(TDB_DCOL.TITLE,o.courseTitle||'');
+    w(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
+    w(TDB_DCOL.SECTION_SIZE,psuCap);
+    const psuPrints=psuCap>0&&(o.printStatus||'Print')==='Print';
+    w(TDB_DCOL.WLST,psuPrints?TDB_WLST_FLOOR:0);
+    if(a.credit!==null)w(TDB_DCOL.CREDIT_HRS,a.credit);
+    else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))w(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
+    if(meet)w(TDB_DCOL.MEETING1,meet);
+    else if(tdbIsArranged(o))w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+    w(TDB_DCOL.PRINT,psuPrints?'Y':'N');
+    w(TDB_DCOL.INSTR1,i1.name); w(TDB_DCOL.PSUID1,i1.id);
+    if(i1.name||i2.name)w(TDB_DCOL.PCT1,i2.name?50:100);
+    w(TDB_DCOL.INSTR2,i2.name); w(TDB_DCOL.PSUID2,i2.id);
+    if(i2.name)w(TDB_DCOL.PCT2,50);
+    if(i1.unresolved||i2.unresolved)
+      summary.review.push({label:`${o.prefix} ${a.number} ${sect||''}`.trim(),
+        note:`PSU ID unknown for ${[i1,i2].filter(x=>x.unresolved).map(x=>x.name).join(', ')} — enter by hand`});
+    nextRow++; summary.added++;
+
+    if(needsShell){
+      const ws2=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(ws,nextRow,col,v,true); };
+      ws2(TDB_DCOL.FLAG,'A - Add Section');
+      ws2(TDB_DCOL.XLST,code); ws2(TDB_DCOL.NEW_XLST,'Y'); ws2(TDB_DCOL.XLST_SIZE,total);
+      ws2(TDB_DCOL.SUBJ,'SOPH'); ws2(TDB_DCOL.CRSE,3);
+      ws2(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
+      ws2(TDB_DCOL.TITLE,tdbSophTitle(o.prefix,a.number,o.courseTitle));
+      ws2(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
+      ws2(TDB_DCOL.SECTION_SIZE,ohsuCap);
+      ws2(TDB_DCOL.WLST,0);
+      if(a.credit!==null)ws2(TDB_DCOL.CREDIT_HRS,a.credit);
+      else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))ws2(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
+      if(meet)ws2(TDB_DCOL.MEETING1,meet);
+      else if(tdbIsArranged(o))ws2(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+      ws2(TDB_DCOL.PRINT,'N');
+      ws2(TDB_DCOL.INSTR1,i1.name); ws2(TDB_DCOL.PSUID1,i1.id);
+      if(i1.name||i2.name)ws2(TDB_DCOL.PCT1,i2.name?50:100);
+      ws2(TDB_DCOL.INSTR2,i2.name); ws2(TDB_DCOL.PSUID2,i2.id);
+      if(i2.name)ws2(TDB_DCOL.PCT2,50);
+      nextRow++; summary.added++;
+    }
   });
 
-  XLSX.writeFile(wb, `${TDB.targetTerm||'draft'}_generated.xlsx`, {cellStyles:true});
+  summary.problems=tdbValidate(offerings,byUuid);
+  XLSX.writeFile(wb,`${TDB.targetTerm||'draft'}_draft_generated.xlsx`,{cellStyles:true});
   tdbRenderDraftSummary(summary);
 }
 
+/* ── pre-flight validation ────────────────────────────────────
+   Three invariants that held across every crosslist group in the verified
+   Winter 2027 cycle. Each one catches a class of mistake that is invisible
+   once the file is back in PSU's hands. */
+function tdbValidate(offerings,byUuid){
+  const problems=[];
+  const seen=new Map();
+  TDB.groups.forEach(g=>{
+    const uuid=TDB.pairings[g.key];
+    if(!uuid||uuid==='DELETE')return;
+    const o=byUuid[uuid];
+    if(!o)return;
+    // 1 · caps must add up
+    const hasSplit=[o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2].some(v=>tdbNorm(v)!=='');
+    if(hasSplit){
+      const sum=tdbCap(o.psuCap1)+tdbCap(o.psuCap2)+tdbCap(o.ohsuCap1)+tdbCap(o.ohsuCap2);
+      if(sum!==tdbCap(o.totalCap))
+        problems.push(`${tdbGroupLabel(g)} — PSU + OHSU caps total ${sum} but the offering's total cap is ${tdbCap(o.totalCap)}`);
+    }else if(g.rows.length>1){
+      problems.push(`${tdbGroupLabel(g)} — crosslisted but the offering records no PSU/OHSU cap split, so section sizes were left as PSU sent them`);
+    }
+    // 2 · a crosslist needs both sides
+    if(g.rows.length>1){
+      const hasSoph=g.rows.some(r=>r.subj==='SOPH'), hasPsu=g.rows.some(r=>r.subj!=='SOPH');
+      if(!hasSoph||!hasPsu)
+        problems.push(`${tdbGroupLabel(g)} — crosslist code ${g.xlst||'(new)'} has only ${hasSoph?'a SOPH':'a PSU'} side`);
+    }
+    // 3 · one offering, one group (credit siblings excepted)
+    if(!seen.has(uuid))seen.set(uuid,[]);
+    seen.get(uuid).push(g);
+  });
+  seen.forEach((gs,uuid)=>{
+    if(gs.length<2)return;
+    const o=byUuid[uuid];
+    if(tdbCreditRange(o&&o.creditsRaw))return;   // expected: one section per credit value
+    problems.push(`${gs.map(tdbGroupLabel).join(' and ')} are both paired to ${o?o.fullName:'the same offering'}`);
+  });
+  return problems;
+}
+
+/* ── rendering ─────────────────────────────────────────────── */
+function tdbGroupLabel(g){
+  const r=g.rows.find(x=>x.subj!=='SOPH')||g.rows[0];
+  const extra=g.rows.length>1?` +${g.rows.length-1}`:'';
+  return `${r.subj} ${r.crse}-${r.sect||'—'}${extra}`;
+}
+function tdbOfferingLabel(o){
+  const num=o.number2?`${o.courseNumber}/${o.number2}`:o.courseNumber+(o.sectIdx?`-${o.sectIdx}`:'');
+  const who=[o.instructor1,o.instructor2].filter(Boolean).join(' / ')||'TBD';
+  return `${o.prefix} ${num} — ${who} — cap ${o.totalCap||'?'}`;
+}
+function tdbPopulateTerms(){
+  if(TDB.termsPopulated||!TERM_ROWS||!TERM_ROWS.length)return;
+  const opts=TERM_ROWS.map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
+  $('tdb-target-term').insertAdjacentHTML('beforeend',opts);
+  TDB.termsPopulated=true;
+}
+function tdbDiffChips(group,offering){
+  if(!offering)return '';
+  const chips=[];
+  const row=group.rows.find(r=>r.subj!=='SOPH')||group.rows[0];
+  const groupTotal=group.rows.reduce((s,r)=>s+(r.sectionSize||0),0);
+  const cap=tdbCap(offering.totalCap);
+  chips.push(groupTotal===cap
+    ? `<span class="tdb-diff-chip tdb-diff-same">Cap ${cap}</span>`
+    : `<span class="tdb-diff-chip tdb-diff-changed">Cap ${groupTotal}→${cap}</span>`);
+  const cur=tdbNorm(row.instr1);
+  const tgt=tdbResolveInstructor(offering.instructor1).name;
+  if(cur||tgt)chips.push(cur===tgt
+    ? `<span class="tdb-diff-chip tdb-diff-same">${esc(tgt||'—')}</span>`
+    : `<span class="tdb-diff-chip tdb-diff-changed">${esc(cur||'—')}→${esc(tgt||'—')}</span>`);
+  const meet=tdbMeetingString(offering);
+  if(row.meet1||meet)chips.push(tdbNorm(row.meet1)===meet
+    ? `<span class="tdb-diff-chip tdb-diff-same">${esc(meet||offering.modality||'ARRNGD')}</span>`
+    : `<span class="tdb-diff-chip tdb-diff-changed">${esc(row.meet1||'—')}→${esc(meet||offering.modality||'ARRNGD')}</span>`);
+  return chips.join('');
+}
+function tdbRenderPrefixGrid(){
+  const card=$('tdb-scope-card'), grid=$('tdb-prefix-grid');
+  const found=new Map();
+  (TDB.draftFile?TDB.draftFile.rows:[]).forEach(r=>{
+    const p=r.subj==='SOPH'?(tdbTitleRef(r.title)||{}).prefix:r.subj;
+    if(!p)return;
+    found.set(p,(found.get(p)||0)+1);
+  });
+  if(found.size===0){card.style.display='none';return;}
+  card.style.display='';
+  if(!TDB.allowedInit){
+    found.forEach((_,p)=>{ if(TDB_DEFAULT_ALLOWED.has(p))TDB.allowedPrefixes.add(p); });
+    TDB.allowedInit=true;
+  }
+  grid.innerHTML='';
+  [...found.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([p,ct])=>{
+    const on=TDB.allowedPrefixes.has(p);
+    const lbl=document.createElement('label');
+    lbl.className='tdb-ptoggle'+(on?' on':'');
+    lbl.innerHTML=`<input type="checkbox" ${on?'checked':''} ${TDB.locked?'disabled':''}> ${esc(p)} <span class="ct">(${ct})</span>`;
+    if(!TDB.locked)lbl.querySelector('input').addEventListener('change',e=>{
+      if(e.target.checked)TDB.allowedPrefixes.add(p); else TDB.allowedPrefixes.delete(p);
+      tdbRecompute();
+    });
+    grid.appendChild(lbl);
+  });
+}
+function tdbRenderStats(offerings){
+  const wrap=$('tdb-stats-row');
+  if(!TDB.draftFile){wrap.style.display='none';return;}
+  wrap.style.display='';
+  const decided=TDB.groups.filter(g=>TDB.pairings[g.key]).length;
+  const deletes=TDB.groups.filter(g=>TDB.pairings[g.key]==='DELETE')
+    .reduce((n,g)=>n+g.rows.length,0)+(TDB.outOfScope||[]).reduce((n,g)=>n+g.rows.length,0);
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
+  const unmatched=offerings.filter(o=>!claimed.has(o._uuid));
+  const confirmedAdds=unmatched.filter(o=>TDB.addConfirmed.has(o._uuid)).length;
+  wrap.innerHTML=`
+    <div class="tdb-stat"><div class="n">${TDB.draftFile.rows.length}</div><div class="l">Template rows</div></div>
+    <div class="tdb-stat"><div class="n">${TDB.groups.length}</div><div class="l">Groups in scope</div></div>
+    <div class="tdb-stat"><div class="n">${offerings.length}</div><div class="l">Target-term offerings</div></div>
+    <div class="tdb-stat"><div class="n">${decided}/${TDB.groups.length}</div><div class="l">Groups reviewed</div></div>
+    <div class="tdb-stat ${deletes?'warn':''}"><div class="n">${deletes}</div><div class="l">Rows marked Delete</div></div>
+    <div class="tdb-stat"><div class="n">${confirmedAdds}/${unmatched.length}</div><div class="l">New offerings confirmed</div></div>`;
+}
+function tdbRenderLockBanner(){
+  const b=$('tdb-lock-banner');
+  if(!TDB.locked){b.style.display='none';$('tdb-lock-btn').style.display='';return;}
+  b.style.display='';
+  $('tdb-lock-btn').style.display='none';
+  b.innerHTML=`<div class="tdb-locked-note">🔒 Review set locked at ${esc(TDB.lockedAt||'')} — ${TDB.groups.length} groups.
+    <button class="btn btn-s btn-sm" id="tdb-unlock-btn">Unlock to edit</button></div>`;
+  $('tdb-unlock-btn').addEventListener('click',()=>{TDB.locked=false;TDB.lockedAt=null;tdbRenderAll();tdbUpdateGenerateBtn();});
+}
+function tdbLock(){
+  const pending=TDB.groups.filter(g=>!TDB.pairings[g.key]);
+  if(pending.length){
+    alert(`${pending.length} group${pending.length===1?'':'s'} still need a decision — pair each one with an offering or mark it discontinued.`);
+    return;
+  }
+  TDB.locked=true;
+  TDB.lockedAt=new Date().toLocaleString();
+  tdbRenderAll(); tdbUpdateGenerateBtn();
+}
+function tdbRenderPairTable(offerings){
+  const card=$('tdb-pair-card'), tb=$('tdb-pair-tb');
+  if(!TDB.draftFile||!TDB.groups.length){card.style.display='none';return;}
+  card.style.display='';
+  tb.innerHTML='';
+  TDB.groups.forEach(g=>{
+    const decision=TDB.pairings[g.key];
+    const cands=tdbCandidates(g,offerings);
+    const tr=document.createElement('tr');
+    const rowsHtml=g.rows.map(r=>
+      `<div class="tdb-ref-row">${esc(r.subj)} ${esc(r.crse)}-${esc(r.sect||'—')}
+        <span class="meta">${esc(r.title)}</span>
+        <span class="meta">cap ${r.sectionSize??'—'}${r.meet1?' · '+esc(r.meet1):''}</span></div>`).join('');
+    const opts=[`<option value="">— choose —</option>`]
+      .concat(cands.map(o=>`<option value="${esc(o._uuid)}" ${decision===o._uuid?'selected':''}>${esc(tdbOfferingLabel(o))}</option>`))
+      .concat(offerings.filter(o=>!cands.includes(o))
+        .map(o=>`<option value="${esc(o._uuid)}" ${decision===o._uuid?'selected':''}>· ${esc(tdbOfferingLabel(o))}</option>`))
+      .concat([`<option value="DELETE" ${decision==='DELETE'?'selected':''}>✕ Not offered — mark Delete</option>`]).join('');
+    const offering=decision&&decision!=='DELETE'?offerings.find(o=>o._uuid===decision):null;
+    const status=decision==='DELETE'?'<span class="tdb-pill tdb-pill-del">Delete</span>'
+      :decision?'<span class="tdb-pill tdb-pill-ok">Paired</span>'
+      :'<span class="tdb-pill tdb-pill-pend">Pending</span>';
+    tr.innerHTML=`<td>${rowsHtml}${g.newCode?'<div class="meta">unlinked SOPH shell — will get a new crosslist code</div>':''}${g.reviewNote?`<div class="meta warn">${esc(g.reviewNote)}</div>`:''}</td>
+      <td>${g.xlst?`<span class="tdb-code">${esc(g.xlst)}</span>`:'<span class="meta">no code</span>'}</td>
+      <td><select class="tdb-pick" ${TDB.locked?'disabled':''}>${opts}</select></td>
+      <td>${tdbDiffChips(g,offering)}</td>
+      <td>${status}</td>`;
+    if(!TDB.locked)tr.querySelector('select').addEventListener('change',e=>{
+      const v=e.target.value;
+      if(v)TDB.pairings[g.key]=v; else delete TDB.pairings[g.key];
+      tdbRenderAll(); tdbUpdateGenerateBtn();
+    });
+    tb.appendChild(tr);
+  });
+}
+function tdbRenderUnmatched(offerings){
+  const card=$('tdb-unmatched-card'), list=$('tdb-unmatched-list');
+  const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
+  const unmatched=offerings.filter(o=>!claimed.has(o._uuid));
+  if(!TDB.draftFile||unmatched.length===0){card.style.display='none';return;}
+  card.style.display='';
+  list.innerHTML='';
+  unmatched.forEach(o=>{
+    const on=TDB.addConfirmed.has(o._uuid);
+    const div=document.createElement('div');
+    div.className='tdb-unmatched-row'+(on?' on':'');
+    const credits=tdbCreditRange(o.creditsRaw);
+    const note=credits&&o.secMark
+      ? `variable credit — will add ${credits.length} sections (${tdbSectionCodeFor(o,credits[0])}–${tdbSectionCodeFor(o,credits[credits.length-1])})`
+      : (tdbCap(o.ohsuCap1)>0||tdbCap(o.ohsuCap2)>0?'will add a SOPH shell row too':'PSU-side only');
+    div.innerHTML=`<label><input type="checkbox" ${on?'checked':''} ${TDB.locked?'disabled':''}>
+      <b>${esc(tdbOfferingLabel(o))}</b> <span class="meta">${esc(note)}</span></label>`;
+    if(!TDB.locked)div.querySelector('input').addEventListener('change',e=>{
+      if(e.target.checked)TDB.addConfirmed.add(o._uuid); else TDB.addConfirmed.delete(o._uuid);
+      tdbRenderAll();
+    });
+    list.appendChild(div);
+  });
+}
 function tdbRenderDraftSummary(s){
   const wrap=$('tdb-draft-summary');
   wrap.innerHTML=`
@@ -3749,69 +3855,102 @@ function tdbRenderDraftSummary(s){
       <div class="tdb-stat"><div class="n">${s.changed}</div><div class="l">Marked Change</div></div>
       <div class="tdb-stat"><div class="n">${s.deleted}</div><div class="l">Marked Delete</div></div>
       <div class="tdb-stat"><div class="n">${s.added}</div><div class="l">Rows added</div></div>
-      <div class="tdb-stat ${s.noMatch.length?'warn':''}"><div class="n">${s.noMatch.length}</div><div class="l">No reference match</div></div>
-      <div class="tdb-stat ${s.needsReview.length?'warn':''}"><div class="n">${s.needsReview.length}</div><div class="l">Needs manual review</div></div>
+      <div class="tdb-stat ${s.problems.length?'warn':''}"><div class="n">${s.problems.length}</div><div class="l">Validation flags</div></div>
+      <div class="tdb-stat ${s.review.length?'warn':''}"><div class="n">${s.review.length}</div><div class="l">Needs manual entry</div></div>
     </div>
-    <p class="tdb-sub" style="margin-bottom:10px;">Every written cell is highlighted yellow so changes are easy to scan.${s.added?` The ${s.added} added row${s.added===1?'':'s'} at the bottom only have what the app knows — credit hours, restrictions, billing, fees, and PSU IDs are left blank for you to fill in.`:''}</p>`;
-  const items=[...s.noMatch.map(dr=>({dr,note:'No matching Cognos reference row found — left untouched, verify by hand'})),...s.needsReview];
+    <p class="tdb-sub" style="margin-bottom:10px;">Every written cell is highlighted yellow. Restrictions, billing, fees, grade mode and campus code are left exactly as PSU sent them.</p>`;
+  const items=s.problems.map(p=>({label:'Validation',note:p})).concat(s.review);
   if(items.length){
     const list=document.createElement('div');
-    items.forEach(({dr,note})=>{
+    items.forEach(({label,note})=>{
       const div=document.createElement('div'); div.className='tdb-sum-review';
-      div.innerHTML=`<b>${esc(dr.subj)} ${esc(dr.crse)} ${esc(dr.sect)}</b><span class="why">${esc(note)}</span>`;
+      div.innerHTML=`<b>${esc(label)}</b><span class="why">${esc(note)}</span>`;
       list.appendChild(div);
     });
     wrap.appendChild(list);
   }
 }
-
+function tdbRenderAll(){
+  const offerings=tdbTargetOfferings();
+  tdbRenderPrefixGrid();
+  tdbRenderStats(offerings);
+  tdbRenderPairTable(offerings);
+  tdbRenderLockBanner();
+  tdbRenderUnmatched(offerings);
+  $('tdb-draft-card').style.display=TDB.draftFile?'':'none';
+}
+function tdbRecompute(){
+  if(!TDB.draftFile){TDB.groups=[];tdbRenderAll();tdbUpdateGenerateBtn();return;}
+  TDB.psuIds=tdbBuildPsuIdMap(TDB.draftFile.rows);
+  const all=tdbBuildDraftGroups(TDB.draftFile.rows);
+  // A SOPH row naming no course at all (SOPH 2 network services and friends)
+  // is registrar plumbing, not a section this tool has any opinion about —
+  // it is neither paired nor deleted, just left alone.
+  TDB.untouched=all.filter(g=>!g.ref.prefix);
+  const scoped=all.filter(g=>g.ref.prefix);
+  TDB.groups=scoped.filter(g=>TDB.allowedPrefixes.has(g.ref.prefix));
+  // Anything out of scope is a delete, decided up front rather than row by row.
+  TDB.outOfScope=scoped.filter(g=>!TDB.allowedPrefixes.has(g.ref.prefix));
+  const offerings=tdbTargetOfferings();
+  TDB.groups.forEach(g=>{
+    if(TDB.pairings[g.key]!==undefined)return;
+    const s=tdbSuggestMatch(g,offerings);
+    if(s)TDB.pairings[g.key]=s._uuid;
+    else if(tdbCandidates(g,offerings).length===0)TDB.pairings[g.key]='DELETE';
+  });
+  tdbRenderAll();
+  tdbUpdateGenerateBtn();
+}
+function renderTdb(){
+  tdbPopulateTerms();
+  if(TDB.draftFile)tdbRecompute(); else tdbRenderAll();
+}
+function tdbUpdateGenerateBtn(){
+  const btn=$('tdb-generate-btn');
+  if(!btn)return;
+  btn.disabled=!(TDB.draftFile&&TDB.locked&&TDB.targetTerm);
+  btn.title=!TDB.targetTerm?'Pick the target term first'
+    :!TDB.draftFile?'Upload the Draft template first'
+    :!TDB.locked?'Lock the review set first':'';
+}
 function wireTdbEvents(){
-  const dz=$('tdb-dropzone'), fi=$('tdb-file-input');
-  dz.addEventListener('click',()=>fi.click());
-  fi.addEventListener('change',e=>tdbHandleFiles([...e.target.files]));
-  ['dragenter','dragover'].forEach(evt=>dz.addEventListener(evt,e=>{e.preventDefault();dz.classList.add('drag');}));
-  ['dragleave','drop'].forEach(evt=>dz.addEventListener(evt,e=>{e.preventDefault();dz.classList.remove('drag');}));
-  dz.addEventListener('drop',e=>tdbHandleFiles([...e.dataTransfer.files]));
-
-  $('tdb-ref-term').addEventListener('change',e=>{ TDB.refTerm=e.target.value; });
   $('tdb-target-term').addEventListener('change',e=>{
     TDB.targetTerm=e.target.value;
-    TDB.pairings={};   // switching target terms invalidates any pairing choices made so far
-    if(TDB.files.length)tdbRenderAll();
+    TDB.pairings={}; TDB.addConfirmed.clear();
+    TDB.locked=false; TDB.lockedAt=null;
+    tdbRecompute();
   });
   $('tdb-lock-btn').addEventListener('click',tdbLock);
 
-  const ddz=$('tdb-draft-dropzone'), dfi=$('tdb-draft-file-input');
-  ddz.addEventListener('click',()=>dfi.click());
-  const handleDraftFile=async(file)=>{
+  const dz=$('tdb-draft-dropzone'), fi=$('tdb-draft-file-input');
+  dz.addEventListener('click',()=>fi.click());
+  const handleFile=async file=>{
     if(!file||!/\.xlsx$/i.test(file.name))return;
     const info=$('tdb-draft-file-info');
     info.innerHTML=`<span class="empty-note">Reading ${esc(file.name)}…</span>`;
     try{
       TDB.draftFile=await tdbParseDraftTemplate(file);
+      TDB.pairings={}; TDB.addConfirmed.clear();
+      TDB.allowedInit=false; TDB.allowedPrefixes.clear();
+      TDB.locked=false; TDB.lockedAt=null;
       info.innerHTML=`<div class="tdb-chip"><span class="badge">DRAFT</span><span>${esc(file.name)}</span><span class="meta">${TDB.draftFile.rows.length} rows</span></div>`;
+      tdbRecompute();
     }catch(err){
       TDB.draftFile=null;
       info.innerHTML=`<div class="tdb-sum-review">${esc(err.message)}</div>`;
+      tdbUpdateGenerateBtn();
     }
-    tdbUpdateGenerateBtn();
   };
-  dfi.addEventListener('change',e=>handleDraftFile(e.target.files[0]));
-  ['dragenter','dragover'].forEach(evt=>ddz.addEventListener(evt,e=>{e.preventDefault();ddz.classList.add('drag');}));
-  ['dragleave','drop'].forEach(evt=>ddz.addEventListener(evt,e=>{e.preventDefault();ddz.classList.remove('drag');}));
-  ddz.addEventListener('drop',e=>handleDraftFile(e.dataTransfer.files[0]));
+  fi.addEventListener('change',e=>handleFile(e.target.files[0]));
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>handleFile(e.dataTransfer.files[0]));
   $('tdb-generate-btn').addEventListener('click',tdbGenerateDraft);
-}
-
-function tdbUpdateGenerateBtn(){
-  const btn=$('tdb-generate-btn');
-  btn.disabled=!(TDB.draftFile&&TDB.locked);
-  btn.title=!TDB.draftFile ? 'Upload the Draft template first' : !TDB.locked ? 'Lock the pairing set first' : '';
 }
 
 /* ─── BOOTSTRAP ─────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded',async()=>{
-  console.log('%c[SPH scheduling] build 2026-07-30a — session persistence fix','color:#0a7');
+  console.log('%c[SPH scheduling] build 2026-08-03a — term draft builder: template-only diff','color:#0a7');
   wireEvents();
   wireTdbEvents();
   // Install the handler before the first client is built; initSupabase() now
