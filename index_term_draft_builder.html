@@ -3602,14 +3602,17 @@ function tdbParseDraftTemplate(file){
   });
 }
 
-function tdbWriteCell(ws,r,c,value){
+const TDB_YELLOW_FILL={fill:{patternType:'solid',fgColor:{rgb:'FFFF00'},bgColor:{rgb:'FFFF00'}}};
+function tdbWriteCell(ws,r,c,value,highlight){
   const ref=XLSX.utils.encode_cell({r,c});
   const existing=ws[ref];
   if(existing){
     existing.v=value; existing.t=typeof value==='number'?'n':'s';
     delete existing.f; delete existing.w;
+    if(highlight)existing.s=TDB_YELLOW_FILL;
   }else{
     ws[ref]={t:typeof value==='number'?'n':'s', v:value};
+    if(highlight)ws[ref].s=TDB_YELLOW_FILL;
     const range=XLSX.utils.decode_range(ws['!ref']);
     if(r>range.e.r)range.e.r=r;
     if(c>range.e.c)range.e.c=c;
@@ -3679,7 +3682,7 @@ function tdbGenerateDraft(){
     const {row:cogRow,group}=hit;
     const decision=TDB.pairings[group.key];
     if(decision==='DELETE'){
-      tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'D - Delete Section');
+      tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'D - Delete Section',true);
       summary.deleted++; return;
     }
     if(!decision){ summary.needsReview.push({dr,note:'Reference group has no decision — unexpected in a fully-locked set'}); return; }
@@ -3695,45 +3698,46 @@ function tdbGenerateDraft(){
     const isSoph=tdbClassPrefix(cogRow.Class)==='SOPH';
     const changes=tdbComputeDraftDiff(cogRow,offering,isSoph);
     if(changes.length===0){ summary.unchanged++; return; }
-    tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'C - Change Existing');
-    changes.forEach(ch=>tdbWriteCell(ws,dr.r,ch.col,ch.value));
+    tdbWriteCell(ws,dr.r,TDB_DCOL.FLAG,'C - Change Existing',true);
+    changes.forEach(ch=>tdbWriteCell(ws,dr.r,ch.col,ch.value,true));
     const reviewNotes=changes.filter(c=>c.needsReview).map(c=>c.note);
     if(reviewNotes.length)summary.needsReview.push({dr,note:reviewNotes.join('; ')});
     summary.changed++;
   });
 
-  // Confirmed "Add" offerings not represented by any existing draft row get appended.
+  // Confirmed "Add" offerings not represented by any existing draft row get appended
+  // at the bottom. Only fields we actually have data for get written; anything we
+  // don't have a source for (restrictions, billing, fees, PSU ID, ranged credit
+  // hours, non-preset meeting times...) is simply left blank rather than guessed.
   let nextRow=(TDB.draftFile.lastRow||rows.reduce((m,r)=>Math.max(m,r.r),0))+1;
   const courseById={}; (DB.courses||[]).forEach(c=>{courseById[c.id]=c;});
   TDB.addConfirmed.forEach(uuid=>{
     const offering=offeringById[uuid];
     if(!offering)return;
     const course=courseById[offering.courseId]||{};
-    tdbWriteCell(ws,nextRow,TDB_DCOL.FLAG,'A - Add Section');
-    tdbWriteCell(ws,nextRow,TDB_DCOL.NEW_XLST,'Y');
-    tdbWriteCell(ws,nextRow,TDB_DCOL.SUBJ,offering.prefix||'');
-    tdbWriteCell(ws,nextRow,TDB_DCOL.CRSE,Number(offering.courseNumber)||offering.courseNumber||'');
-    tdbWriteCell(ws,nextRow,TDB_DCOL.SECT,1);
-    tdbWriteCell(ws,nextRow,TDB_DCOL.TITLE,course.title||'');
-    const mapped=tdbMapModality(offering.modality);
-    if(mapped)tdbWriteCell(ws,nextRow,TDB_DCOL.INSTR_METHOD,mapped);
-    tdbWriteCell(ws,nextRow,TDB_DCOL.XLST_SIZE,Number(offering.totalCap)||'');
-    tdbWriteCell(ws,nextRow,TDB_DCOL.SECTION_SIZE,Number(offering.totalCap)||'');
-    if(offering.instructor1)tdbWriteCell(ws,nextRow,TDB_DCOL.PRIMARY_INSTR,offering.instructor1);
+    const w=(col,val)=>{ if(val!==''&&val!=null) tdbWriteCell(ws,nextRow,col,val,true); };
+    w(TDB_DCOL.FLAG,'A - Add Section');
+    w(TDB_DCOL.NEW_XLST,'Y');
+    w(TDB_DCOL.SUBJ,offering.prefix||'');
+    w(TDB_DCOL.CRSE,Number(offering.courseNumber)||offering.courseNumber||'');
+    w(TDB_DCOL.SECT,1);
+    w(TDB_DCOL.TITLE,course.title||'');
+    w(TDB_DCOL.INSTR_METHOD,tdbMapModality(offering.modality));
+    w(TDB_DCOL.XLST_SIZE,Number(offering.totalCap)||'');
+    w(TDB_DCOL.SECTION_SIZE,Number(offering.totalCap)||'');
+    w(TDB_DCOL.PRIMARY_INSTR,offering.instructor1||'');
     const preset=tdbFindMeetingPreset(offering);
-    const reviewBits=['New section — verify SECT number, credit hours, restrictions, billing, and fees (none of that exists in the scheduling app)'];
-    if(preset){ tdbWriteCell(ws,nextRow,TDB_DCOL.MEETING1,preset); }
-    else if(tdbClassifyOffering(offering).kind==='arranged'){ tdbWriteCell(ws,nextRow,TDB_DCOL.PLACEHOLDER,'ARRNGD'); }
-    else if(tdbClassifyOffering(offering).kind!=='online'){ reviewBits.push("meeting time doesn't match a preset option"); }
-    if(course.credits!=null && !/[-–]/.test(String(course.credits))) tdbWriteCell(ws,nextRow,TDB_DCOL.CREDIT_HRS,Number(course.credits)||course.credits);
-    else reviewBits.push('ranged/missing credit hours — set manually');
-    if(offering.instructor1) reviewBits.push('instructor PSU ID needs manual entry');
-    summary.needsReview.push({dr:{subj:offering.prefix,crse:offering.courseNumber,sect:'(new)'}, note:reviewBits.join('; ')});
+    const kind=tdbClassifyOffering(offering).kind;
+    if(preset) w(TDB_DCOL.MEETING1,preset);
+    else if(kind==='arranged') w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+    // else: meeting time doesn't match a preset and isn't arranged/online — left blank
+    if(course.credits!=null && !/[-–]/.test(String(course.credits))) w(TDB_DCOL.CREDIT_HRS,Number(course.credits)||course.credits);
+    // ranged/missing credit hours — left blank
     summary.added++;
     nextRow++;
   });
 
-  XLSX.writeFile(wb, `${TDB.targetTerm||'draft'}_generated.xlsx`);
+  XLSX.writeFile(wb, `${TDB.targetTerm||'draft'}_generated.xlsx`, {cellStyles:true});
   tdbRenderDraftSummary(summary);
 }
 
@@ -3747,7 +3751,8 @@ function tdbRenderDraftSummary(s){
       <div class="tdb-stat"><div class="n">${s.added}</div><div class="l">Rows added</div></div>
       <div class="tdb-stat ${s.noMatch.length?'warn':''}"><div class="n">${s.noMatch.length}</div><div class="l">No reference match</div></div>
       <div class="tdb-stat ${s.needsReview.length?'warn':''}"><div class="n">${s.needsReview.length}</div><div class="l">Needs manual review</div></div>
-    </div>`;
+    </div>
+    <p class="tdb-sub" style="margin-bottom:10px;">Every written cell is highlighted yellow so changes are easy to scan.${s.added?` The ${s.added} added row${s.added===1?'':'s'} at the bottom only have what the app knows — credit hours, restrictions, billing, fees, and PSU IDs are left blank for you to fill in.`:''}</p>`;
   const items=[...s.noMatch.map(dr=>({dr,note:'No matching Cognos reference row found — left untouched, verify by hand'})),...s.needsReview];
   if(items.length){
     const list=document.createElement('div');
