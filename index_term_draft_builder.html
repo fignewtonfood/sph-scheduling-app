@@ -3331,7 +3331,17 @@ function tdbRowTargets(row,offering,group){
       t[TDB_DCOL.SECTION_SIZE]=isSoph
         ? tdbCap(slot===1?offering.ohsuCap1:offering.ohsuCap2)
         : tdbCap(slot===1?offering.psuCap1:offering.psuCap2);
+    }else if(!offering.number2){
+      // Total recorded with neither side broken out: on a single course number
+      // the whole cap belongs to one side, and the course level says which —
+      // below 500 it is a PSU cap, 500 and above it is an OHSU cap.
+      const grad=tdbIsGradNumber(offering.courseNumber);
+      t[TDB_DCOL.SECTION_SIZE]=isSoph
+        ? (grad?tdbCap(offering.totalCap):0)
+        : (grad?0:tdbCap(offering.totalCap));
     }
+    // A dual listing with no split cannot be apportioned at all — the
+    // template's own numbers stay put and tdbValidate raises it as an error.
   }else{
     // No OHSU side at all: the crosslist is being dissolved.
     t[TDB_DCOL.XLST_SIZE]='';
@@ -3438,6 +3448,18 @@ function tdbNextSectionNumber(taken){
   return n;
 }
 
+/* Graduate courses are open to OHSU students, so a 500- or 600-level PSU
+   section always has a SOPH shell alongside it. Checked against the whole
+   Winter 2027 draft: 137 of 138 PSU rows follow it, with no counter-example
+   below 500. The lone exception is a PSU-only dual-degree section, which is
+   why an unexpected pairing is flagged for review rather than forced. */
+function tdbIsGradNumber(num){
+  const m=String(num??'').match(/^(\d+)/);
+  if(!m)return false;
+  const lvl=Number(m[1]);
+  return lvl>=500&&lvl<700;
+}
+
 /* ── SOPH shell rows ──────────────────────────────────────────
    The SOPH 3 shell is how OHSU students register through PSU Banner, so an
    added PSU section with OHSU seats needs one. */
@@ -3477,6 +3499,8 @@ async function tdbGenerateDraft(){
   const offerings=tdbTargetOfferings();
   const byUuid={}; offerings.forEach(o=>{byUuid[o._uuid]=o;});
   const summary={unchanged:0,changed:0,deleted:0,added:0,review:[],problems:[]};
+  const shellQueue=[];   // graduate sections whose SOPH row the template is missing
+  const addProblems=[];
   const nextCode=tdbCodeGenerator(TDB.draftFile.rows.map(r=>r.xlst).filter(Boolean));
 
   // Section numbers already in play, per prefix+course, so added sections
@@ -3515,7 +3539,21 @@ async function tdbGenerateDraft(){
     }
     // A pair PSU never linked needs a placeholder code on every row.
     let code=null;
+
+    // Every 500- and 600-level section has a SOPH shell. Where the template
+    // has none, one is generated rather than flagged: the rule holds across
+    // the schedule, and a spurious row is easier to spot and delete than a
+    // missing one is to notice. The pair needs a shared code either way.
+    const sophNums=new Set();
+    group.rows.filter(r=>r.subj==='SOPH').forEach(r=>{
+      const ref=tdbTitleRef(r.title);
+      if(ref)sophNums.add(tdbNormKeyPart(ref.number));
+    });
+    const missingShells=group.rows.filter(r=>
+      r.subj!=='SOPH'&&tdbIsGradNumber(r.crse)&&!sophNums.has(tdbNormKeyPart(r.crse)));
+    if(missingShells.length&&!group.xlst)group.newCode=true;
     if(group.newCode)code=nextCode();
+    missingShells.forEach(r=>shellQueue.push({row:r,offering,group,code:code||group.xlst}));
 
     group.rows.forEach(row=>{
       const t=tdbRowTargets(row,offering,group);
@@ -3546,23 +3584,30 @@ async function tdbGenerateDraft(){
   });
 
   // ── added sections ──
+  // One instance is one Banner section of one offering, and every row it
+  // produces shares a single crosslist code: the PSU row for each course
+  // number of a dual listing, plus a SOPH shell wherever OHSU takes seats.
+  // PHE 468/568 is three rows under one code, not two codes.
+  //
+  // A dash in the schedule's course string designates a section — PHE 450-2
+  // is course 450 section 2, PUBH 590-PHP is course 590 section PHP — so a
+  // variable-credit course with a section marker yields one instance per
+  // credit value: PUBH 590-PHP at 1-4 credits is PHP1 through PHP4, each with
+  // its own SOPH counterpart.
   let nextRow=(TDB.draftFile.lastRow||0)+1;
   const claimed=new Set(Object.values(TDB.pairings).filter(v=>v&&v!=='DELETE'));
-  const addRows=[];
+  const instances=[];
+  const addInstance=(o,credit,sectHint)=>{
+    if(instances.some(x=>x.offering===o&&x.credit===credit))return;
+    instances.push({offering:o,credit,sectHint});
+  };
 
   // Offerings with no draft group at all.
   offerings.forEach(o=>{
-    if(claimed.has(o._uuid))return;
-    if(!TDB.addConfirmed.has(o._uuid))return;
+    if(claimed.has(o._uuid)||!TDB.addConfirmed.has(o._uuid))return;
     const credits=tdbCreditRange(o.creditsRaw);
-    const numbers=[o.courseNumber].concat(o.number2?[o.number2]:[]);
-    if(credits&&o.secMark){
-      credits.forEach(cr=>addRows.push({offering:o,number:o.courseNumber,slot:1,credit:cr,
-        sect:tdbSectionCodeFor(o,cr)}));
-    }else{
-      numbers.forEach((num,i)=>addRows.push({offering:o,number:num,slot:i+1,credit:null,
-        sect:o.sectIdx||''}));
-    }
+    if(credits&&o.secMark)credits.forEach(cr=>addInstance(o,cr,tdbSectionCodeFor(o,cr)));
+    else addInstance(o,null,o.sectIdx||'');
   });
 
   // Offerings already paired but missing some of their credit sections.
@@ -3576,99 +3621,126 @@ async function tdbGenerateDraft(){
       if(TDB.pairings[g2.key]!==o._uuid)return;
       g2.rows.forEach(r=>{ if(r.credits!==null)have.add(r.credits); });
     });
-    credits.forEach(cr=>{
-      if(have.has(cr))return;
-      if(addRows.some(a=>a.offering===o&&a.credit===cr))return;
-      addRows.push({offering:o,number:o.courseNumber,slot:1,credit:cr,sect:tdbSectionCodeFor(o,cr)});
+    credits.forEach(cr=>{ if(!have.has(cr))addInstance(o,cr,tdbSectionCodeFor(o,cr)); });
+  });
+
+  instances.sort((a,b)=>
+    (a.offering.prefix||'').localeCompare(b.offering.prefix||'')||
+    tdbNatCompare(a.offering.courseNumber,b.offering.courseNumber)||
+    tdbNatCompare(a.sectHint,b.sectHint));
+
+  instances.forEach(inst=>{
+    const o=inst.offering;
+    const total=tdbCap(o.totalCap);
+    const anySplit=[o.psuCap1,o.psuCap2,o.ohsuCap1,o.ohsuCap2].some(v=>tdbNorm(v)!=='');
+    const i1=tdbResolveInstructor(o.instructor1);
+    const i2=tdbResolveInstructor(o.instructor2);
+    const meet=tdbMeetingString(o);
+
+    // One section code for the whole instance, shared by both course numbers
+    // of a dual listing and by their SOPH shells.
+    let sect=inst.sectHint;
+    if(inst.credit===null){
+      const taken=takenFor(o.prefix,o.courseNumber);
+      if(taken.size)sect=String(tdbNextSectionNumber(taken));
+    }
+
+    const slots=[{num:o.courseNumber,psuRaw:o.psuCap1,ohsuRaw:o.ohsuCap1}];
+    if(o.number2)slots.push({num:o.number2,psuRaw:o.psuCap2,ohsuRaw:o.ohsuCap2});
+    slots.forEach(sl=>{
+      sl.grad=tdbIsGradNumber(sl.num);
+      sl.shell=tdbCap(sl.ohsuRaw)>0||sl.grad;
+      // With a cap recorded, use it. Otherwise: a graduate section's seats sit
+      // on the OHSU side, and an undergraduate section with no OHSU shell takes
+      // the whole cap — reading a blank psu_cap as zero there would add the
+      // section with no room in it. A dual listing with nothing recorded can't
+      // be apportioned either way, so it gets zero and a review note.
+      sl.psu=tdbNorm(sl.psuRaw)!==''?tdbCap(sl.psuRaw)
+        :(sl.grad?0:(slots.length===1?Math.max(total-tdbCap(sl.ohsuRaw),0):0));
+      sl.ohsu=tdbNorm(sl.ohsuRaw)!==''?tdbCap(sl.ohsuRaw)
+        :(sl.shell&&slots.length===1?Math.max(total-sl.psu,0):0);
+    });
+    const rows=[];
+    slots.forEach(sl=>rows.push({soph:false,num:sl.num,cap:sl.psu}));
+    slots.forEach(sl=>{ if(sl.shell)rows.push({soph:true,num:sl.num,cap:sl.ohsu}); });
+
+    const code=rows.length>1?nextCode():'';
+    const label=`${o.prefix} ${o.courseNumber}${o.number2?'/'+o.number2:''}${sect?' '+sect:''}`;
+
+    if(tdbNorm(o.totalCap)===''&&!anySplit)
+      summary.review.push({label,note:'No caps recorded on the offering — section sizes left blank'});
+    else if(!anySplit&&o.number2)
+      addProblems.push(`${label} — dual-listed with a total cap of ${total} but no PSU/OHSU split; there is no way to apportion it between the two course numbers`);
+    if(i1.unresolved||i2.unresolved)
+      summary.review.push({label,
+        note:`PSU ID unknown for ${[i1,i2].filter(x=>x.unresolved).map(x=>x.name).join(', ')} — enter by hand`});
+
+    // With no cap recorded anywhere on the offering, the size columns are left
+    // blank rather than filled with zeros — a blank reads as "not yet decided",
+    // a zero asserts the section has no seats.
+    const capKnown=tdbNorm(o.totalCap)!==''||anySplit;
+    rows.forEach(row=>{
+      const w=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(out,nextRow,col,v,true); };
+      const wants=(o.printStatus||'Print')==='Print';
+      const prints=!row.soph&&wants&&(capKnown?row.cap>0:true);
+      w(TDB_DCOL.FLAG,'A - Add Section');
+      if(code){ w(TDB_DCOL.XLST,code); w(TDB_DCOL.NEW_XLST,'Y'); if(capKnown)w(TDB_DCOL.XLST_SIZE,total); }
+      w(TDB_DCOL.SUBJ,row.soph?'SOPH':(o.prefix||''));
+      w(TDB_DCOL.CRSE,row.soph?3:(tdbNum(row.num)!==null?tdbNum(row.num):row.num));
+      w(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
+      w(TDB_DCOL.TITLE,row.soph?tdbSophTitle(o.prefix,row.num,o.courseTitle):(o.courseTitle||''));
+      w(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
+      if(capKnown){
+        w(TDB_DCOL.SECTION_SIZE,row.cap);
+        w(TDB_DCOL.WLST,prints?TDB_WLST_FLOOR:0);
+      }
+      if(inst.credit!==null)w(TDB_DCOL.CREDIT_HRS,inst.credit);
+      else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))w(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
+      if(meet)w(TDB_DCOL.MEETING1,meet);
+      else if(tdbIsArranged(o))w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+      w(TDB_DCOL.PRINT,prints?'Y':'N');
+      w(TDB_DCOL.INSTR1,i1.name); w(TDB_DCOL.PSUID1,i1.id);
+      if(i1.name||i2.name)w(TDB_DCOL.PCT1,i2.name?50:100);
+      w(TDB_DCOL.INSTR2,i2.name); w(TDB_DCOL.PSUID2,i2.id);
+      if(i2.name)w(TDB_DCOL.PCT2,50);
+      nextRow++; summary.added++;
     });
   });
 
-  addRows.sort((a,b)=>
-    (a.offering.prefix||'').localeCompare(b.offering.prefix||'')||
-    tdbNatCompare(a.number,b.number)||
-    tdbNatCompare(a.sect,b.sect));
-
-  addRows.forEach(a=>{
-    const o=a.offering;
-    const rawPsu=a.slot===1?o.psuCap1:o.psuCap2;
-    const ohsuCap=tdbCap(a.slot===1?o.ohsuCap1:o.ohsuCap2);
-    const needsShell=ohsuCap>0;
-    const total=tdbCap(o.totalCap);
-    // A standalone section with no OHSU seats takes the whole cap — reading a
-    // blank psu_cap as zero there would add the section with no room in it.
-    const psuCap=tdbNorm(rawPsu)!==''?tdbCap(rawPsu):(needsShell?Math.max(total-ohsuCap,0):total);
-    const anySplit=[o.psuCap1,o.psuCap2,o.ohsuCap1,o.ohsuCap2].some(v=>tdbNorm(v)!=='');
-    if(tdbNorm(o.totalCap)===''&&!anySplit)
-      summary.review.push({label:`${o.prefix} ${a.number}`,
-        note:'No caps recorded on the offering — section size left at 0'});
-    else if(!anySplit)
-      summary.review.push({label:`${o.prefix} ${a.number}`,
-        note:`No PSU/OHSU split recorded — the full cap of ${total} went to the PSU section and no SOPH shell was created. Set the caps in the schedule if OHSU takes seats.`});
-    const i1=tdbResolveInstructor(o.instructor1);
-    const i2=tdbResolveInstructor(o.instructor2);
-    let sect=a.sect;
-    if(!a.credit){
-      // A course PSU already sent rows for gets its added sections from the
-      // reserved block, so an addition never reads as a renumbering of an
-      // existing section — and can't collide with one, which the schedule's
-      // own section index does (PHE 478-2 in the schedule, PHE 478-2 already
-      // in the template). A course with no rows in the template at all keeps
-      // the schedule's numbering, since there is nothing to be confused with.
-      const taken=takenFor(o.prefix,a.number);
-      sect=taken.size?String(tdbNextSectionNumber(taken)):(sect||'');
-    }
-    const code=needsShell?nextCode():'';
-    const meet=tdbMeetingString(o);
+  // SOPH shells for graduate sections the template shipped without one.
+  shellQueue.forEach(({row,offering,code})=>{
+    const slot=tdbSlotOf(row,offering);
+    const recorded=slot===1?offering.ohsuCap1:offering.ohsuCap2;
+    const psuSide=slot===1?offering.psuCap1:offering.psuCap2;
+    const total=tdbCap(offering.totalCap);
+    const cap=tdbNorm(recorded)!==''?tdbCap(recorded)
+      :(tdbNorm(psuSide)!==''?Math.max(total-tdbCap(psuSide),0):total);
+    const i1=tdbResolveInstructor(offering.instructor1);
+    const i2=tdbResolveInstructor(offering.instructor2);
+    const meet=tdbMeetingString(offering);
     const w=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(out,nextRow,col,v,true); };
-
     w(TDB_DCOL.FLAG,'A - Add Section');
     if(code){ w(TDB_DCOL.XLST,code); w(TDB_DCOL.NEW_XLST,'Y'); w(TDB_DCOL.XLST_SIZE,total); }
-    w(TDB_DCOL.SUBJ,o.prefix||'');
-    w(TDB_DCOL.CRSE,tdbNum(a.number)!==null?tdbNum(a.number):a.number);
-    w(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
-    w(TDB_DCOL.TITLE,o.courseTitle||'');
-    w(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
-    w(TDB_DCOL.SECTION_SIZE,psuCap);
-    const psuPrints=psuCap>0&&(o.printStatus||'Print')==='Print';
-    w(TDB_DCOL.WLST,psuPrints?TDB_WLST_FLOOR:0);
-    if(a.credit!==null)w(TDB_DCOL.CREDIT_HRS,a.credit);
-    else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))w(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
+    w(TDB_DCOL.SUBJ,'SOPH'); w(TDB_DCOL.CRSE,3);
+    w(TDB_DCOL.SECT,tdbNum(row.sect)!==null?tdbNum(row.sect):row.sect);
+    w(TDB_DCOL.TITLE,tdbSophTitle(row.subj,row.crse,offering.courseTitle||row.title));
+    w(TDB_DCOL.INSTR_METHOD,tdbMapModality(offering.modality));
+    w(TDB_DCOL.SECTION_SIZE,cap);
+    w(TDB_DCOL.WLST,0);
+    if(row.credits!==null)w(TDB_DCOL.CREDIT_HRS,row.credits);
     if(meet)w(TDB_DCOL.MEETING1,meet);
-    else if(tdbIsArranged(o))w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
-    w(TDB_DCOL.PRINT,psuPrints?'Y':'N');
+    else if(tdbIsArranged(offering))w(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+    w(TDB_DCOL.PRINT,'N');
     w(TDB_DCOL.INSTR1,i1.name); w(TDB_DCOL.PSUID1,i1.id);
     if(i1.name||i2.name)w(TDB_DCOL.PCT1,i2.name?50:100);
     w(TDB_DCOL.INSTR2,i2.name); w(TDB_DCOL.PSUID2,i2.id);
     if(i2.name)w(TDB_DCOL.PCT2,50);
-    if(i1.unresolved||i2.unresolved)
-      summary.review.push({label:`${o.prefix} ${a.number} ${sect||''}`.trim(),
-        note:`PSU ID unknown for ${[i1,i2].filter(x=>x.unresolved).map(x=>x.name).join(', ')} — enter by hand`});
+    summary.review.push({label:`${row.subj} ${row.crse}-${row.sect||'—'}`,
+      note:`Graduate section with no SOPH row in the template — one was added at ${cap} seats. Delete it if this section really is PSU-only.`});
     nextRow++; summary.added++;
-
-    if(needsShell){
-      const shell=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(out,nextRow,col,v,true); };
-      shell(TDB_DCOL.FLAG,'A - Add Section');
-      shell(TDB_DCOL.XLST,code); shell(TDB_DCOL.NEW_XLST,'Y'); shell(TDB_DCOL.XLST_SIZE,total);
-      shell(TDB_DCOL.SUBJ,'SOPH'); shell(TDB_DCOL.CRSE,3);
-      shell(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
-      shell(TDB_DCOL.TITLE,tdbSophTitle(o.prefix,a.number,o.courseTitle));
-      shell(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
-      shell(TDB_DCOL.SECTION_SIZE,ohsuCap);
-      shell(TDB_DCOL.WLST,0);
-      if(a.credit!==null)shell(TDB_DCOL.CREDIT_HRS,a.credit);
-      else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))shell(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
-      if(meet)shell(TDB_DCOL.MEETING1,meet);
-      else if(tdbIsArranged(o))shell(TDB_DCOL.PLACEHOLDER,'ARRNGD');
-      shell(TDB_DCOL.PRINT,'N');
-      shell(TDB_DCOL.INSTR1,i1.name); shell(TDB_DCOL.PSUID1,i1.id);
-      if(i1.name||i2.name)shell(TDB_DCOL.PCT1,i2.name?50:100);
-      shell(TDB_DCOL.INSTR2,i2.name); shell(TDB_DCOL.PSUID2,i2.id);
-      if(i2.name)shell(TDB_DCOL.PCT2,50);
-      nextRow++; summary.added++;
-    }
   });
 
-  summary.problems=tdbValidate(offerings,byUuid);
+  summary.problems=tdbValidate(offerings,byUuid).concat(addProblems);
   summary.cells=out.size;
   const btn=$('tdb-generate-btn'); btn.disabled=true; btn.textContent='Writing…';
   try{
@@ -3891,8 +3963,10 @@ function tdbValidate(offerings,byUuid){
       const sum=tdbCap(o.psuCap1)+tdbCap(o.psuCap2)+tdbCap(o.ohsuCap1)+tdbCap(o.ohsuCap2);
       if(sum!==tdbCap(o.totalCap))
         problems.push(`${tdbGroupLabel(g)} — PSU + OHSU caps total ${sum} but the offering's total cap is ${tdbCap(o.totalCap)}`);
-    }else if(g.rows.length>1){
-      problems.push(`${tdbGroupLabel(g)} — crosslisted but the offering records no PSU/OHSU cap split, so section sizes were left as PSU sent them`);
+    }else if(o.number2&&tdbNorm(o.totalCap)!==''){
+      problems.push(`${tdbGroupLabel(g)} — dual-listed with a total cap of ${tdbCap(o.totalCap)} but no PSU/OHSU split; there is no way to apportion it, so section sizes were left as PSU sent them`);
+    }else if(g.rows.length>1&&tdbNorm(o.totalCap)===''){
+      problems.push(`${tdbGroupLabel(g)} — crosslisted but the offering records no caps at all, so section sizes were left as PSU sent them`);
     }
     // 2 · a crosslist needs both sides
     if(g.rows.length>1){
@@ -3900,6 +3974,13 @@ function tdbValidate(offerings,byUuid){
       if(!hasSoph||!hasPsu)
         problems.push(`${tdbGroupLabel(g)} — crosslist code ${g.xlst||'(new)'} has only ${hasSoph?'a SOPH':'a PSU'} side`);
     }
+    // 2b · every graduate section should have a SOPH shell
+    const sophNums=new Set();
+    g.rows.filter(r=>r.subj==='SOPH').forEach(r=>{
+      const ref=tdbTitleRef(r.title);
+      if(ref)sophNums.add(tdbNormKeyPart(ref.number));
+    });
+
     // 3 · one offering, one group (credit siblings excepted)
     if(!seen.has(uuid))seen.set(uuid,[]);
     seen.get(uuid).push(g);
