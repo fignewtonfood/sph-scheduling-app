@@ -6,6 +6,7 @@
 <title>SPH Course Scheduling — AY 2026-27</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 /* ═══ TOKENS ═════════════════════════════════════════════════ */
 :root {
@@ -2936,7 +2937,7 @@ function updateAuthBar(user,admin){
    plus two SOPH rows sharing one code. */
 const TDB = {
   targetTerm:'',
-  draftFile:null,           // {wb,ws,sheetName,rows,name,lastRow}
+  draftFile:null,           // {wb,ws,sheetName,rows,name,lastRow,bytes}
   groups:[],
   allowedPrefixes:new Set(),
   allowedInit:false,
@@ -3138,7 +3139,14 @@ function tdbParseDraftTemplate(file){
             instr2:tdbNorm(get(TDB_DCOL.INSTR2)), psuid2:get(TDB_DCOL.PSUID2)
           });
         }
-        resolve({wb,ws,sheetName,rows,name:file.name,lastRow:range.e.r});
+        // lastRow is the last row carrying data, not the sheet's formatting
+        // extent — PSU ships ~300 pre-formatted blank rows below the data, and
+        // added sections belong immediately after the last real one.
+        const lastRow=rows.length?rows[rows.length-1].r:0;
+        // The raw bytes are kept so the file can be patched in place rather
+        // than rebuilt: SheetJS's writer drops data validations, conditional
+        // formatting and every cell format the template carries.
+        resolve({wb,ws,sheetName,rows,name:file.name,lastRow,bytes:e.target.result});
       }catch(err){reject(err);}
     };
     reader.onerror=reject;
@@ -3438,34 +3446,34 @@ function tdbSophTitle(prefix,number,title){
 }
 
 /* ── generation ─────────────────────────────────────────────── */
-const TDB_YELLOW_FILL={fill:{patternType:'solid',fgColor:{rgb:'FFFF00'},bgColor:{rgb:'FFFF00'}}};
-function tdbWriteCell(ws,r,c,value,highlight){
-  const ref=XLSX.utils.encode_cell({r,c});
-  const existing=ws[ref];
-  const isNum=typeof value==='number';
-  if(value===''||value===null||value===undefined){
-    if(existing){existing.v='';existing.t='s';delete existing.f;delete existing.w;
-      if(highlight)existing.s=TDB_YELLOW_FILL;}
-    return;
-  }
-  if(existing){
-    existing.v=value; existing.t=isNum?'n':'s';
-    delete existing.f; delete existing.w;
-    if(highlight)existing.s=TDB_YELLOW_FILL;
-  }else{
-    ws[ref]={t:isNum?'n':'s',v:value};
-    if(highlight)ws[ref].s=TDB_YELLOW_FILL;
-    const range=XLSX.utils.decode_range(ws['!ref']);
-    if(r>range.e.r)range.e.r=r;
-    if(c>range.e.c)range.e.c=c;
-    ws['!ref']=XLSX.utils.encode_range(range);
-  }
+/* ── the write path ───────────────────────────────────────────
+   Nothing is written through SheetJS. Its community build cannot emit cell
+   styles at all, and rebuilding the workbook from the parsed object drops the
+   template's data validations (PSU's dropdowns), its conditional formatting
+   and all but a handful of cell formats. Every intended change is collected
+   here instead and applied directly to the uploaded file's XML, so what comes
+   back is PSU's own workbook with specific cells altered. */
+function tdbSink(){
+  const cells=new Map();
+  return {
+    set(r,c,value){ cells.set(r+','+c,value); },
+    list(){ return [...cells].map(([k,value])=>{
+      const [r,c]=k.split(',').map(Number);
+      return {row:r+1, col:c, value};   // row -> 1-based, as the XML numbers them
+    }); },
+    get size(){ return cells.size; }
+  };
 }
+function tdbWriteCell(sink,r,c,value){ sink.set(r,c,value); }
 
-function tdbGenerateDraft(){
+async function tdbGenerateDraft(){
   if(!TDB.draftFile){alert('Upload the Draft template first.');return;}
   if(!TDB.locked){alert('Lock the review set first.');return;}
-  const {wb,ws}=TDB.draftFile;
+  if(typeof JSZip==='undefined'){
+    alert("Couldn't load the zip library, so the draft can't be written without damaging PSU's template. Reload the page and try again.");
+    return;
+  }
+  const out=tdbSink();
   const offerings=tdbTargetOfferings();
   const byUuid={}; offerings.forEach(o=>{byUuid[o._uuid]=o;});
   const summary={unchanged:0,changed:0,deleted:0,added:0,review:[],problems:[]};
@@ -3489,14 +3497,14 @@ function tdbGenerateDraft(){
   // Subjects switched off in the scope card leave the PSU schedule entirely,
   // and so do the SOPH shells that pair with them.
   (TDB.outOfScope||[]).forEach(group=>{
-    group.rows.forEach(row=>tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
+    group.rows.forEach(row=>tdbWriteCell(out,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
     summary.deleted+=group.rows.length;
   });
 
   TDB.groups.forEach(group=>{
     const decision=TDB.pairings[group.key];
     if(decision==='DELETE'){
-      group.rows.forEach(row=>tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
+      group.rows.forEach(row=>tdbWriteCell(out,row.r,TDB_DCOL.FLAG,'D - Delete Section',true));
       summary.deleted+=group.rows.length;
       return;
     }
@@ -3528,8 +3536,8 @@ function tdbGenerateDraft(){
         if(tdbCellDiffers(col,tdbRowCurrent(row,col),t[col]))writes.push([col,t[col]]);
       });
       if(writes.length===0){ summary.unchanged++; return; }
-      tdbWriteCell(ws,row.r,TDB_DCOL.FLAG,'C - Change Existing',true);
-      writes.forEach(([col,v])=>tdbWriteCell(ws,row.r,col,v,true));
+      tdbWriteCell(out,row.r,TDB_DCOL.FLAG,'C - Change Existing',true);
+      writes.forEach(([col,v])=>tdbWriteCell(out,row.r,col,v,true));
       if(t._unresolved&&t._unresolved.length)
         summary.review.push({label:tdbGroupLabel(group),
           note:`PSU ID unknown for ${t._unresolved.join(', ')} — enter by hand`});
@@ -3582,22 +3590,36 @@ function tdbGenerateDraft(){
 
   addRows.forEach(a=>{
     const o=a.offering;
-    const psuCap=tdbCap(a.slot===1?o.psuCap1:o.psuCap2);
+    const rawPsu=a.slot===1?o.psuCap1:o.psuCap2;
     const ohsuCap=tdbCap(a.slot===1?o.ohsuCap1:o.ohsuCap2);
     const needsShell=ohsuCap>0;
     const total=tdbCap(o.totalCap);
+    // A standalone section with no OHSU seats takes the whole cap — reading a
+    // blank psu_cap as zero there would add the section with no room in it.
+    const psuCap=tdbNorm(rawPsu)!==''?tdbCap(rawPsu):(needsShell?Math.max(total-ohsuCap,0):total);
+    const anySplit=[o.psuCap1,o.psuCap2,o.ohsuCap1,o.ohsuCap2].some(v=>tdbNorm(v)!=='');
+    if(tdbNorm(o.totalCap)===''&&!anySplit)
+      summary.review.push({label:`${o.prefix} ${a.number}`,
+        note:'No caps recorded on the offering — section size left at 0'});
+    else if(!anySplit)
+      summary.review.push({label:`${o.prefix} ${a.number}`,
+        note:`No PSU/OHSU split recorded — the full cap of ${total} went to the PSU section and no SOPH shell was created. Set the caps in the schedule if OHSU takes seats.`});
     const i1=tdbResolveInstructor(o.instructor1);
     const i2=tdbResolveInstructor(o.instructor2);
     let sect=a.sect;
-    if(!sect&&!a.credit){
-      // Plain new section of an existing course — take the next number in
-      // the reserved block so it reads as new, not as a renumber.
+    if(!a.credit){
+      // A course PSU already sent rows for gets its added sections from the
+      // reserved block, so an addition never reads as a renumbering of an
+      // existing section — and can't collide with one, which the schedule's
+      // own section index does (PHE 478-2 in the schedule, PHE 478-2 already
+      // in the template). A course with no rows in the template at all keeps
+      // the schedule's numbering, since there is nothing to be confused with.
       const taken=takenFor(o.prefix,a.number);
-      sect=taken.size?String(tdbNextSectionNumber(taken)):'';
+      sect=taken.size?String(tdbNextSectionNumber(taken)):(sect||'');
     }
     const code=needsShell?nextCode():'';
     const meet=tdbMeetingString(o);
-    const w=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(ws,nextRow,col,v,true); };
+    const w=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(out,nextRow,col,v,true); };
 
     w(TDB_DCOL.FLAG,'A - Add Section');
     if(code){ w(TDB_DCOL.XLST,code); w(TDB_DCOL.NEW_XLST,'Y'); w(TDB_DCOL.XLST_SIZE,total); }
@@ -3624,31 +3646,231 @@ function tdbGenerateDraft(){
     nextRow++; summary.added++;
 
     if(needsShell){
-      const ws2=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(ws,nextRow,col,v,true); };
-      ws2(TDB_DCOL.FLAG,'A - Add Section');
-      ws2(TDB_DCOL.XLST,code); ws2(TDB_DCOL.NEW_XLST,'Y'); ws2(TDB_DCOL.XLST_SIZE,total);
-      ws2(TDB_DCOL.SUBJ,'SOPH'); ws2(TDB_DCOL.CRSE,3);
-      ws2(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
-      ws2(TDB_DCOL.TITLE,tdbSophTitle(o.prefix,a.number,o.courseTitle));
-      ws2(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
-      ws2(TDB_DCOL.SECTION_SIZE,ohsuCap);
-      ws2(TDB_DCOL.WLST,0);
-      if(a.credit!==null)ws2(TDB_DCOL.CREDIT_HRS,a.credit);
-      else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))ws2(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
-      if(meet)ws2(TDB_DCOL.MEETING1,meet);
-      else if(tdbIsArranged(o))ws2(TDB_DCOL.PLACEHOLDER,'ARRNGD');
-      ws2(TDB_DCOL.PRINT,'N');
-      ws2(TDB_DCOL.INSTR1,i1.name); ws2(TDB_DCOL.PSUID1,i1.id);
-      if(i1.name||i2.name)ws2(TDB_DCOL.PCT1,i2.name?50:100);
-      ws2(TDB_DCOL.INSTR2,i2.name); ws2(TDB_DCOL.PSUID2,i2.id);
-      if(i2.name)ws2(TDB_DCOL.PCT2,50);
+      const shell=(col,v)=>{ if(v!==''&&v!==null&&v!==undefined)tdbWriteCell(out,nextRow,col,v,true); };
+      shell(TDB_DCOL.FLAG,'A - Add Section');
+      shell(TDB_DCOL.XLST,code); shell(TDB_DCOL.NEW_XLST,'Y'); shell(TDB_DCOL.XLST_SIZE,total);
+      shell(TDB_DCOL.SUBJ,'SOPH'); shell(TDB_DCOL.CRSE,3);
+      shell(TDB_DCOL.SECT,tdbNum(sect)!==null?tdbNum(sect):sect);
+      shell(TDB_DCOL.TITLE,tdbSophTitle(o.prefix,a.number,o.courseTitle));
+      shell(TDB_DCOL.INSTR_METHOD,tdbMapModality(o.modality));
+      shell(TDB_DCOL.SECTION_SIZE,ohsuCap);
+      shell(TDB_DCOL.WLST,0);
+      if(a.credit!==null)shell(TDB_DCOL.CREDIT_HRS,a.credit);
+      else if(o.creditsRaw&&!tdbCreditRange(o.creditsRaw))shell(TDB_DCOL.CREDIT_HRS,tdbNum(o.creditsRaw)??o.creditsRaw);
+      if(meet)shell(TDB_DCOL.MEETING1,meet);
+      else if(tdbIsArranged(o))shell(TDB_DCOL.PLACEHOLDER,'ARRNGD');
+      shell(TDB_DCOL.PRINT,'N');
+      shell(TDB_DCOL.INSTR1,i1.name); shell(TDB_DCOL.PSUID1,i1.id);
+      if(i1.name||i2.name)shell(TDB_DCOL.PCT1,i2.name?50:100);
+      shell(TDB_DCOL.INSTR2,i2.name); shell(TDB_DCOL.PSUID2,i2.id);
+      if(i2.name)shell(TDB_DCOL.PCT2,50);
       nextRow++; summary.added++;
     }
   });
 
   summary.problems=tdbValidate(offerings,byUuid);
-  XLSX.writeFile(wb,`${TDB.targetTerm||'draft'}_draft_generated.xlsx`,{cellStyles:true});
+  summary.cells=out.size;
+  const btn=$('tdb-generate-btn'); btn.disabled=true; btn.textContent='Writing…';
+  try{
+    await tdbPatchAndDownload(out.list());
+  }catch(err){
+    alert('Could not write the draft file: '+err.message);
+    return;
+  }finally{
+    btn.disabled=false; btn.textContent='Generate draft file';
+  }
   tdbRenderDraftSummary(summary);
+}
+
+/* ── in-place workbook patching ───────────────────────────────
+   Opens the uploaded .xlsx as a zip, edits only the worksheet XML and the
+   style table, and leaves every other part byte-identical. The template's
+   dropdowns, conditional formatting, column widths and number formats all
+   survive because they are never re-serialised.
+
+   Changed cells are marked yellow and bold. Both layer onto the format the
+   cell already has rather than replacing it, so the number formats PSU relies
+   on (section codes rendering as 001, for instance) survive. The fill also
+   marks cells that were deliberately cleared, which a font change cannot. */
+const TDB_XL_NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+function tdbColLetter(c){
+  let s='';
+  for(c=c+1;c>0;c=Math.floor((c-1)/26))s=String.fromCharCode(65+(c-1)%26)+s;
+  return s;
+}
+async function tdbSheetPath(zip,sheetName){
+  const wbXml=await zip.file('xl/workbook.xml').async('string');
+  const relXml=await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const wb=new DOMParser().parseFromString(wbXml,'application/xml');
+  const rels=new DOMParser().parseFromString(relXml,'application/xml');
+  const sheets=[...wb.getElementsByTagName('sheet')];
+  const target=sheets.find(x=>x.getAttribute('name')===sheetName)||sheets[0];
+  const rid=target.getAttribute('r:id')||target.getAttributeNS(
+    'http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');
+  const rel=[...rels.getElementsByTagName('Relationship')].find(x=>x.getAttribute('Id')===rid);
+  let path=rel?rel.getAttribute('Target'):'worksheets/sheet1.xml';
+  if(path.startsWith('/'))return path.slice(1);
+  return 'xl/'+path.replace(/^\.\//,'');
+}
+
+/* Marks a changed cell without disturbing the format it already carries.
+   Both the fill and the weight layer onto the cell's existing xf, so number
+   formats, borders and alignment survive — a section code still renders as
+   011 under the template's 00# format. Set either flag to false to drop that
+   half of the treatment. */
+const TDB_MARK_FILL=true;    // yellow background, as PSU's own edits use
+const TDB_MARK_BOLD=true;    // readable when the file is printed in mono
+const TDB_MARK_RGB='FFFFFF00';
+
+function tdbMarkStyleTable(doc){
+  const fonts=doc.getElementsByTagName('fonts')[0];
+  const fills=doc.getElementsByTagName('fills')[0];
+  const cellXfs=doc.getElementsByTagName('cellXfs')[0];
+  if(!fonts||!fills||!cellXfs)return null;
+  const fontEls=[...fonts.getElementsByTagName('font')];
+  const xfEls=[...cellXfs.children];
+  const markFontFor=new Map(), markXfFor=new Map();
+  const bump=(el,n)=>el.setAttribute('count',String(Number(el.getAttribute('count')||0)+n));
+
+  // One shared yellow fill for every marked cell.
+  let yellowFill=-1;
+  if(TDB_MARK_FILL){
+    const fill=doc.createElementNS(TDB_XL_NS,'fill');
+    const pat=doc.createElementNS(TDB_XL_NS,'patternFill');
+    pat.setAttribute('patternType','solid');
+    const fg=doc.createElementNS(TDB_XL_NS,'fgColor'); fg.setAttribute('rgb',TDB_MARK_RGB);
+    const bg=doc.createElementNS(TDB_XL_NS,'bgColor'); bg.setAttribute('indexed','64');
+    pat.appendChild(fg); pat.appendChild(bg); fill.appendChild(pat);
+    yellowFill=fills.getElementsByTagName('fill').length;
+    fills.appendChild(fill); bump(fills,1);
+  }
+
+  return {
+    apply(sIdx){
+      const idx=Number(sIdx||0);
+      if(markXfFor.has(idx))return markXfFor.get(idx);
+      const xf=xfEls[idx]||xfEls[0];
+      if(!xf)return idx;
+      const newXf=xf.cloneNode(true);
+      if(TDB_MARK_BOLD){
+        const fontId=Number(xf.getAttribute('fontId')||0);
+        let markFont=markFontFor.get(fontId);
+        if(markFont===undefined){
+          const clone=(fontEls[fontId]||fontEls[0]).cloneNode(true);
+          if(!clone.getElementsByTagName('b').length)
+            clone.insertBefore(doc.createElementNS(TDB_XL_NS,'b'),clone.firstChild);
+          fonts.appendChild(clone); bump(fonts,1);
+          markFont=fontEls.length; fontEls.push(clone);
+          markFontFor.set(fontId,markFont);
+        }
+        newXf.setAttribute('fontId',String(markFont));
+        newXf.setAttribute('applyFont','1');
+      }
+      if(TDB_MARK_FILL){
+        newXf.setAttribute('fillId',String(yellowFill));
+        newXf.setAttribute('applyFill','1');
+      }
+      cellXfs.appendChild(newXf); bump(cellXfs,1);
+      const newIdx=xfEls.length; xfEls.push(newXf);
+      markXfFor.set(idx,newIdx);
+      return newIdx;
+    }
+  };
+}
+
+function tdbSetCellValue(doc,cell,value){
+  while(cell.firstChild)cell.removeChild(cell.firstChild);   // drops <v>, <f>, <is>
+  cell.removeAttribute('t');
+  if(value===''||value===null||value===undefined)return;
+  if(typeof value==='number'&&isFinite(value)){
+    const v=doc.createElementNS(TDB_XL_NS,'v');
+    v.appendChild(doc.createTextNode(String(value)));
+    cell.appendChild(v);
+    return;
+  }
+  // Inline strings keep sharedStrings.xml untouched, which matters because
+  // other parts of the workbook index into it.
+  cell.setAttribute('t','inlineStr');
+  const is=doc.createElementNS(TDB_XL_NS,'is'), t=doc.createElementNS(TDB_XL_NS,'t');
+  t.setAttribute('xml:space','preserve');
+  t.appendChild(doc.createTextNode(String(value)));
+  is.appendChild(t); cell.appendChild(is);
+}
+
+async function tdbPatchAndDownload(writes){
+  const zip=await JSZip.loadAsync(TDB.draftFile.bytes);
+  const sheetPath=await tdbSheetPath(zip,TDB.draftFile.sheetName);
+  const sheetFile=zip.file(sheetPath);
+  if(!sheetFile)throw new Error('could not find '+sheetPath+' inside the workbook');
+
+  const doc=new DOMParser().parseFromString(await sheetFile.async('string'),'application/xml');
+  if(doc.getElementsByTagName('parsererror').length)throw new Error('the worksheet XML could not be read');
+  const sheetData=doc.getElementsByTagName('sheetData')[0];
+  if(!sheetData)throw new Error('the worksheet has no sheetData');
+
+  const styleDoc=new DOMParser().parseFromString(
+    await zip.file('xl/styles.xml').async('string'),'application/xml');
+  const mark=tdbMarkStyleTable(styleDoc);
+
+  const rowEls=new Map();
+  [...sheetData.getElementsByTagName('row')].forEach(r=>rowEls.set(Number(r.getAttribute('r')),r));
+
+  const rowOf=n=>{
+    if(rowEls.has(n))return rowEls.get(n);
+    const el=doc.createElementNS(TDB_XL_NS,'row');
+    el.setAttribute('r',String(n));
+    const after=[...rowEls.keys()].filter(k=>k>n).sort((a,b)=>a-b)[0];
+    sheetData.insertBefore(el,after!==undefined?rowEls.get(after):null);
+    rowEls.set(n,el);
+    return el;
+  };
+  const cellOf=(rowEl,rowNum,col)=>{
+    const ref=tdbColLetter(col)+rowNum;
+    const cells=[...rowEl.getElementsByTagName('c')];
+    const hit=cells.find(c=>c.getAttribute('r')===ref);
+    if(hit)return hit;
+    const el=doc.createElementNS(TDB_XL_NS,'c');
+    el.setAttribute('r',ref);
+    // Keep cells in column order; Excel rejects a row whose refs run backwards.
+    const after=cells.find(c=>tdbRefCol(c.getAttribute('r'))>col);
+    rowEl.insertBefore(el,after||null);
+    return el;
+  };
+
+  writes.forEach(({row,col,value})=>{
+    const rowEl=rowOf(row);
+    const cell=cellOf(rowEl,row,col);
+    tdbSetCellValue(doc,cell,value);
+    if(mark)cell.setAttribute('s',String(mark.apply(cell.getAttribute('s'))));
+  });
+
+  // The dimension, if present, has to cover any rows we appended.
+  const dim=doc.getElementsByTagName('dimension')[0];
+  if(dim){
+    const maxRow=Math.max(...[...rowEls.keys()]);
+    const m=(dim.getAttribute('ref')||'').match(/^([A-Z]+\d+):([A-Z]+)(\d+)$/);
+    if(m&&Number(m[3])<maxRow)dim.setAttribute('ref',`${m[1]}:${m[2]}${maxRow}`);
+  }
+
+  const ser=new XMLSerializer();
+  zip.file(sheetPath,ser.serializeToString(doc));
+  zip.file('xl/styles.xml',ser.serializeToString(styleDoc));
+
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',
+    mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`${TDB.targetTerm||'draft'}_draft_generated.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function tdbRefCol(ref){
+  const m=String(ref||'').match(/^([A-Z]+)/);
+  if(!m)return -1;
+  let n=0;
+  for(const ch of m[1])n=n*26+(ch.charCodeAt(0)-64);
+  return n-1;
 }
 
 /* ── pre-flight validation ────────────────────────────────────
@@ -3875,7 +4097,7 @@ function tdbRenderDraftSummary(s){
       <div class="tdb-stat ${s.problems.length?'warn':''}"><div class="n">${s.problems.length}</div><div class="l">Validation flags</div></div>
       <div class="tdb-stat ${s.review.length?'warn':''}"><div class="n">${s.review.length}</div><div class="l">Needs manual entry</div></div>
     </div>
-    <p class="tdb-sub" style="margin-bottom:10px;">Every written cell is highlighted yellow. Restrictions, billing, fees, grade mode and campus code are left exactly as PSU sent them.</p>`;
+    <p class="tdb-sub" style="margin-bottom:10px;">${s.cells} cell${s.cells===1?'':'s'} written, each highlighted yellow and bolded — including cells that were cleared. This is PSU's own file with those cells changed: dropdowns, conditional formatting and number formats are untouched, as are restrictions, billing, fees, grade mode and campus code.</p>`;
   const items=s.problems.map(p=>({label:'Validation',note:p})).concat(s.review);
   if(items.length){
     const list=document.createElement('div');
