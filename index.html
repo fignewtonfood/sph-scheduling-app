@@ -135,6 +135,9 @@ td{padding:7px 10px;vertical-align:middle}
    carries a tooltip (admin notes, or the description for signed-out visitors)
    the cursor must read as "clickable", not "explain", so this wins over
    .has-notes on specificity rather than by ordering. */
+.secpill{display:inline-block;background:var(--lgray);border:1px solid var(--mgray);border-radius:4px;padding:0 6px;font-size:11px;font-weight:700;color:var(--navy)}
+tr.sec-row td:first-child{padding-left:22px;color:var(--dgray);font-weight:400}
+.csec{display:inline-block;background:var(--lgray);border-radius:4px;padding:0 5px;font-size:11px;color:var(--navy);margin-right:4px}
 a.clink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray);cursor:pointer}
 a.clink:hover{color:var(--teal);border-bottom-color:var(--teal)}
 a.clink.has-notes{cursor:pointer;border-bottom-color:var(--teal)}
@@ -353,7 +356,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
         <table id="sched-tbl">
           <thead><tr>
             <th data-col="term">Term</th><th data-col="prefix">Prefix</th><th data-col="fullName">Course</th>
-            <th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
+            <th data-col="section">Section</th><th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
             <th data-col="modality">Modality</th><th style="text-align:center" title="Restrictions / Permission required to register / Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
@@ -394,8 +397,10 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
         <select id="cc-lvl"><option value="">All Levels</option><option value="GR">GR — Graduate (incl. B)</option><option value="UG">UG — Undergraduate (incl. B)</option><option value="B">B — Both only</option></select>
         <select id="cc-cr"><option value="">All Credits</option><option value="ranged">Ranged only (e.g. 1-4)</option><option value="fixed">Fixed only</option></select>
         <input type="search" id="cc-q" placeholder="Search…" style="width:200px">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="cc-sect"> Show all sections</label>
         <div class="tb-sep"></div>
         <button class="btn btn-p admin-only" id="btn-add-crs" style="display:none">+ Add Course</button>
+        <button class="btn btn-p admin-only" id="btn-add-sec" style="display:none">+ Add Section</button>
       </div>
       <div class="table-wrap">
         <table id="cat-tbl">
@@ -651,6 +656,25 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <button class="btn btn-s" data-close="mo-crs">Cancel</button>
       <button class="btn btn-d btn-sm" id="btn-del-crs" style="display:none">Delete</button>
       <button class="btn btn-p" id="btn-save-crs">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION MODAL -->
+<div class="mo" id="mo-sec">
+  <div class="modal med">
+    <div class="mhd"><h3 id="sm-title">Section</h3><button class="mx" data-close="mo-sec">×</button></div>
+    <div class="mb"><div class="fg">
+      <div class="s2"><label>Course</label><select id="sm-course"></select>
+        <div class="fhint">Credits, grading, level, description and catalog links are inherited from the course — only the section value is stored here.</div></div>
+      <div><label>Section</label><input id="sm-sec" placeholder="e.g. 2 or DK"></div>
+      <div><label>Will appear as</label><div class="fhint" id="sm-preview" style="padding-top:9px">—</div></div>
+      <div id="sm-terms" class="s2"></div>
+    </div></div>
+    <div class="mft">
+      <button class="btn btn-s" data-close="mo-sec">Cancel</button>
+      <button class="btn btn-d btn-sm" id="btn-del-sec" style="display:none">Delete</button>
+      <button class="btn btn-p" id="btn-save-sec">Save</button>
     </div>
   </div>
 </div>
@@ -1029,6 +1053,7 @@ async function loadData(){
   // courses: map DB columns back to legacy keys the renderers use.
   const courses=cR.data.map(c=>({
     id:c.course_code, _uuid:c.id,
+    section:c.section||'', parentUuid:c.parent_id||null, parentId:null,
     prefix:c.prefix, number:c.number, number2:c.number2||'',
     title:c.title, fullName:c.full_name,
     credits:c.credits||'', pnp:c.grading||'',
@@ -1040,6 +1065,23 @@ async function loadData(){
     catUrlPsu:c.catalog_url_psu||'', catUrlOhsu:c.catalog_url_ohsu||''
   }));
   const courseByUuid={}; courses.forEach(c=>{courseByUuid[c._uuid]=c;});
+  // A section row owns only its section value. Every other field is re-derived
+  // from the base course on every load, so a base edit can never leave a
+  // section showing stale credits, an old title or a dead catalog link. The
+  // stored copies still matter — faculty.html reads courses.full_name straight
+  // from the table — and saveCrs() writes them through on a base save.
+  const CRS_INHERIT=['prefix','number','number2','title','credits','pnp','permission',
+    'grugb','fteExempt','maxCap','description','catUrlPsu','catUrlOhsu'];
+  courses.forEach(c=>{
+    if(!c.parentUuid)return;
+    const p=courseByUuid[c.parentUuid];
+    // Orphaned section (parent deleted out from under it): degrade to a plain
+    // course rather than rendering a row with no attributes.
+    if(!p||p.parentUuid){c.parentUuid=null;c.section='';return;}
+    c.parentId=p.id;
+    CRS_INHERIT.forEach(k=>{c[k]=p[k];});
+    c.fullName=crsFullName(p.prefix,p.number,p.number2,p.title,c.section);
+  });
 
   // offerings: translate FK instructor ids back to displayName strings,
   // course_id → course_code, ints → strings (legacy renderers expect strings).
@@ -1051,7 +1093,7 @@ async function loadData(){
     return {
       id:o.source_id||o.id, _uuid:o.id,
       term:o.term, prefix:c.prefix||'', courseNumber:c.number||'',
-      courseId:c.id||'', fullName:c.fullName||'',
+      courseId:c.id||'', fullName:c.fullName||'', section:c.section||'',
       instructor1:i1?i1.displayName:'', instructor2:i2?i2.displayName:'',
       i1Email:'', i2Email:'',
       days:S(o.days), time:S(o.time), modality:S(o.modality), lms:S(o.lms),
@@ -1292,7 +1334,7 @@ function rebuildTermUI(){
   // Catalog term columns
   const ch=$('cat-th');
   if(ch){
-    ch.innerHTML=`<th>Prefix</th><th>Number</th><th>Title</th><th>Credits</th><th>P/NP</th>`+
+    ch.innerHTML=`<th>Prefix</th><th>Number</th><th>Section</th><th>Title</th><th>Credits</th><th>P/NP</th>`+
       `<th class="col-internal">Perm</th><th>GR/UG</th><th class="col-internal">FTE Ex</th><th>Max Cap</th>`+
       TERMS.map(t=>`<th title="${esc(TL[t])}">${esc(shortTerm(t))}</th>`).join('')+
       `<th class="admin-only"${canEdit()?'':' style="display:none"'}>Edit</th>`;
@@ -1303,13 +1345,19 @@ function rebuildTermUI(){
     cmt.innerHTML=`<div class="fsec">Offered in ${esc(activeAY||'')}</div>`+
       TERMS.map(t=>`<div class="crow"><input type="checkbox" id="cm-t-${esc(t)}"><label for="cm-t-${esc(t)}">${esc(TL[t])}</label></div>`).join('');
   }
+  // Section modal: same one-checkbox-per-term control, its own id namespace.
+  const smt=$('sm-terms');
+  if(smt){
+    smt.innerHTML=`<div class="fsec">Offered in ${esc(activeAY||'')}</div>`+
+      TERMS.map(t=>`<div class="crow"><input type="checkbox" id="sm-t-${esc(t)}"><label for="sm-t-${esc(t)}">${esc(TL[t])}</label></div>`).join('');
+  }
 }
 /* 'Summer 2026' → 'Su26'. Column headers have no room for the full label. */
 function shortTerm(code){
   const m=String(code).match(/^([A-Za-z]+)(\d+)$/);
   return m?m[1].slice(0,2)+m[2]:code;
 }
-const catCols=()=>9+TERMS.length+(canEdit()?1:0);
+const catCols=()=>10+TERMS.length+(canEdit()?1:0);
 
 /* ─── TERM MANAGEMENT (admin only) ─────────────────────────── */
 /* The three flags per term are the whole of "level 3". is_public publishes a
@@ -1525,11 +1573,11 @@ function renderSched(){
     th.classList.remove('sa','sd');
     if(th.dataset.col===sortCol)th.classList.add(sortDir===1?'sa':'sd');
   });
-  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="11" class="nores">No offerings match filters.</td></tr>`;return;}
+  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="12" class="nores">No offerings match filters.</td></tr>`;return;}
   let h='',lt=null,lp=null;
   rows.forEach(o=>{
-    if(o.term!==lt){h+=`<tr class="gt"><td colspan="11">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
-    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="11">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
+    if(o.term!==lt){h+=`<tr class="gt"><td colspan="12">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
+    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="12">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
     const i2=o.instructor2?` &amp; ${facLink(o.instructor2)}`:'';
     // Per-term, not per-user: a PD may edit Spring while Fall is frozen.
     const canT=canEditTerm(o.term);
@@ -1549,8 +1597,9 @@ function renderSched(){
     // A native title= would race the custom tooltip, so only one of them exists
     // at a time: hover text when there is any, the affordance hint otherwise.
     const tipAttr=tipTxt?` data-notes="${esc(tipTxt)}"`:' title="View course page"';
+    const _pageId=o.courseId?baseCodeOf(o.courseId):'';
     const nameOpen=o.courseId
-      ? `<a class="clink${tipTxt?' has-notes':''}"${tipAttr} href="?course=${esc(encodeURIComponent(o.courseId))}" data-course="${esc(o.courseId)}">`
+      ? `<a class="clink${tipTxt?' has-notes':''}"${tipAttr} href="?course=${esc(encodeURIComponent(_pageId))}" data-course="${esc(_pageId)}">`
       : (tipTxt?`<span class="has-notes" data-notes="${esc(tipTxt)}">`:'<span>');
     const nameClose=o.courseId?'</a>':'</span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
@@ -1566,7 +1615,9 @@ function renderSched(){
     const flags=restr+permReq+(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}${nameClose}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}${nameClose}${warnMark}${noPrint}${noteInd}${potBadge}</td>
+      <td style="text-align:center">${o.section?`<span class="secpill">${esc(o.section)}</span>`:''}</td>
+      <td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality,o.lms)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" min="0" step="1" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -1919,10 +1970,43 @@ function renderCht(){
    Hyphen, en dash and em dash all count; the field is free text and the
    workbook import was not consistent about which one it used. */
 const isRangedCr=v=>/[-\u2010-\u2015]/.test(String(v??''));
+
+/* ─── SECTIONS ───────────────────────────────────────────────
+   A section is a course row carrying parent_id + section; everything else is
+   inherited from the base course. Because it is still a course, offerings, the
+   catalog dot grid, the CH tool, the exports and the faculty app all keep
+   working unchanged — in particular the one-offering-per-(course, term) rule
+   that dotCell() and toggleOff() are built on stays true.
+
+   The section rides in full_name after the number — "PHE - 450-1: Title" —
+   which is both the convention the Term Draft parser already reads and the
+   string faculty.html renders verbatim. A dash is the section marker; letters
+   inside the number itself ("504PE") are part of the number. */
+const crsNumDisp=(number,number2)=>number2?`${number}/${number2}`:number;
+function crsFullName(prefix,number,number2,title,section){
+  const s=String(section??'').trim();
+  return `${prefix} - ${crsNumDisp(number,number2)}${s?'-'+s:''}: ${title}`;
+}
+/* Any course code → the code of the page that should render it. Course pages
+   are generated for base courses only; a section defers to its parent. */
+function baseCodeOf(cid){
+  const c=DB.courses.find(x=>x.id===cid);
+  return (c&&c.parentId)?c.parentId:cid;
+}
+/* Natural order, with the base course ahead of all of its sections. */
+function cmpSection(a,b){
+  const x=String(a??'').trim(),y=String(b??'').trim();
+  if(x===y)return 0;
+  if(x==='')return -1;
+  if(y==='')return 1;
+  return x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'});
+}
 function renderCat(){
   const pfx=val('cc-pfx'),q=val('cc-q').toLowerCase(),
         lvl=val('cc-lvl'),crf=val('cc-cr');
+  const showSec=chk('cc-sect');
   let courses=DB.courses.filter(c=>{
+    if(!showSec&&c.parentId)return false;
     if(pfx&&c.prefix!==pfx)return false;
     if(lvl){
       const g=c.grugb||'';
@@ -1937,16 +2021,21 @@ function renderCat(){
     }
     if(q&&!(c.fullName+' '+c.title).toLowerCase().includes(q))return false;
     return true;
-  }).sort((a,b)=>(a.prefix.localeCompare(b.prefix))||a.number.localeCompare(b.number));
+  }).sort((a,b)=>(a.prefix.localeCompare(b.prefix))||a.number.localeCompare(b.number)
+                 ||(a.title||'').localeCompare(b.title||'')||cmpSection(a.section,b.section));
   if(!courses.length){$('cat-tb').innerHTML=`<tr><td colspan="${catCols()}" class="nores">No courses match.</td></tr>`;return;}
   let h='';
   courses.forEach(c=>{
     const eb=canEdit()?`<td><button class="btn btn-s btn-sm ec" data-id="${esc(c.id)}">Edit</button></td>`:'';
     const noOff=!DB.offerings.some(o=>o.courseId===c.id);
-    h+=`<tr${noOff?' class="no-off" title="No offerings scheduled in any term"':''}>
+    // Sections have no page of their own — the title links to the base course.
+    const pageId=c.parentId||c.id;
+    const cls=[noOff?'no-off':'',c.parentId?'sec-row':''].filter(Boolean).join(' ');
+    h+=`<tr${cls?` class="${cls}"`:''}${noOff?' title="No offerings scheduled in any term"':''}>
       <td><strong>${esc(c.prefix)}</strong></td>
       <td>${esc(c.number)}${c.number2?'/'+esc(c.number2):''}</td>
-      <td style="max-width:240px"><a class="clink" href="?course=${esc(encodeURIComponent(c.id))}" data-course="${esc(c.id)}" title="View course page">${esc(c.title)}</a></td>
+      <td style="text-align:center">${c.section?`<span class="secpill">${esc(c.section)}</span>`:''}</td>
+      <td style="max-width:240px"><a class="clink" href="?course=${esc(encodeURIComponent(pageId))}" data-course="${esc(pageId)}" title="View course page">${esc(c.title)}</a></td>
       <td style="text-align:center">${esc(c.credits)}</td>
       <td style="text-align:center">${esc(c.pnp)}</td>
       <td class="col-internal" style="text-align:center">${c.permission==='Yes'?'✓':''}</td>
@@ -2015,7 +2104,18 @@ function courseHistoryVisible(){return canEdit();}   // ← SHOW_HISTORY
 
 function renderCourse(code){
   const wrap=$('crs-body');
-  const c=DB.courses.find(x=>String(x.id)===String(code));
+  let c=DB.courses.find(x=>String(x.id)===String(code));
+  // Course pages are generated for base courses only. Landing on a section —
+  // by deep link or by a stale URL — silently resolves to its parent, and the
+  // address bar is corrected so a copied link points somewhere real.
+  if(c&&c.parentId){
+    const b=DB.courses.find(x=>x.id===c.parentId);
+    if(b){
+      c=b;crsCode=b.id;
+      const u=new URL(window.location);u.searchParams.set('course',b.id);
+      history.replaceState({course:b.id},'',u);
+    }
+  }
   if(!c){
     wrap.innerHTML=`<button class="cback" id="crs-back">← Back</button>
       <div class="ccard"><div class="cgate">That course isn’t in the catalog.</div></div>`;
@@ -2066,7 +2166,11 @@ function gradingLabel(v){
    TERM_ROWS is already RLS-filtered, so an offering in a hidden term simply
    isn't grouped rather than being filtered out by hand. */
 function courseOfferingsHTML(c){
-  const offs=DB.offerings.filter(o=>o.courseId===c.id&&termRow(o.term));
+  // The base course's history includes every section of it — splitting them
+  // across pages that don't exist would hide half the record.
+  const secOf={[c.id]:''};
+  DB.courses.forEach(x=>{if(x.parentId===c.id)secOf[x.id]=x.section||'';});
+  const offs=DB.offerings.filter(o=>Object.prototype.hasOwnProperty.call(secOf,o.courseId)&&termRow(o.term));
   if(!offs.length)return `<div class="cgate">This course has no offerings on record.</div>`;
   const ays=[...new Set(offs.map(o=>termRow(o.term).academic_year))].sort().reverse();
   const multi=ays.length>1;
@@ -2087,7 +2191,8 @@ function courseOfferingsHTML(c){
         const who=[o.instructor1,o.instructor2].filter(Boolean).map(facLink).join(' &amp; ')
                   ||'<span style="color:var(--dgray)">No instructor assigned</span>';
         const meta=[o.days,o.time,o.modality].filter(Boolean).join(' · ');
-        h+=`<div class="corow"><div>${who}</div><div class="cmeta">${esc(meta)}</div></div>`;
+        const sTag=secOf[o.courseId]?`<span class="csec" title="Section">§${esc(secOf[o.courseId])}</span>`:'';
+        h+=`<div class="corow"><div>${sTag}${who}</div><div class="cmeta">${esc(meta)}</div></div>`;
       });
     });
     h+=`</div></details>`;
@@ -2437,6 +2542,8 @@ function delOff(){showCfm('Delete offering?','This will permanently remove this 
 
 /* ─── COURSE MODAL ──────────────────────────────────────────── */
 function openCM(id){
+  // A section has nothing of its own to edit but its section value.
+  if(id){const s=DB.courses.find(x=>x.id===id);if(s&&s.parentId){openSecM(id);return;}}
   eidC=id??null;
   $('cm-title').textContent=id?'Edit Course':'Add Course';
   $('btn-del-crs').style.display=id?'inline-flex':'none';
@@ -2485,7 +2592,7 @@ async function saveCrs(){
     const letters='bcdefghijklmnop';let k=0;
     while(DB.courses.some(c=>c.id===id)){id=base+'_'+letters[k++];}
   }
-  const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
+  const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:crsFullName(pfx,num,num2,title,''),
     credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),
     maxCap:val('cm-cap').trim()||'10',   // blank → 10, including on edit of an older course
     description:val('cm-desc').trim(),
@@ -2502,6 +2609,25 @@ async function saveCrs(){
     if(error){setSS('⚠ Not added: '+error.message);return;}
     data._uuid=ins.id;data.id=ins.course_code;uuid=ins.id;id=ins.course_code;
     DB.courses.push(data);
+  }
+
+  // Sections keep their own copy of every inherited field, because faculty.html
+  // reads courses.full_name straight from the table and never sees this app's
+  // inheritance pass. A base edit therefore has to travel down.
+  const secRows=DB.courses.filter(x=>x.parentUuid&&x.parentUuid===uuid);
+  if(secRows.length){
+    const inh=crsRow(data);delete inh.course_code;
+    for(const s of secRows){
+      const fn=crsFullName(data.prefix,data.number,data.number2,data.title,s.section);
+      Object.assign(s,{prefix:data.prefix,number:data.number,number2:data.number2,
+        title:data.title,credits:data.credits,pnp:data.pnp,permission:data.permission,
+        grugb:data.grugb,fteExempt:data.fteExempt,maxCap:data.maxCap,
+        description:data.description,catUrlPsu:data.catUrlPsu,
+        catUrlOhsu:data.catUrlOhsu,fullName:fn,parentId:data.id});
+      const {error:se}=await sb.from('courses')
+        .update(Object.assign({},inh,{full_name:fn})).eq('id',s._uuid);
+      if(se)setSS('⚠ Section sync failed: '+se.message);
+    }
   }
 
   // Term checkboxes → add / remove offerings (offRow resolves course_id from
@@ -2527,6 +2653,15 @@ async function saveCrs(){
 }
 function delCrs(){
   const c=DB.courses.find(x=>x.id===eidC);const uuid=c?c._uuid:null;
+  // Deleting the base would take its sections with it (ON DELETE CASCADE) and
+  // silently drop their offerings. Make that an explicit two-step instead.
+  const kids=DB.courses.filter(x=>x.parentId===eidC);
+  if(kids.length){
+    showCfm('Sections still attached',
+      `${c?c.prefix+' '+c.number:'This course'} has ${kids.length} section${kids.length===1?'':'s'} (${kids.map(k=>k.section).join(', ')}). Delete those first — the base course cannot be removed while they exist.`,
+      ()=>{});
+    return;
+  }
   showCfm('Delete course?',`Delete "${c?c.fullName:'this course'}" and all its offerings?`,async()=>{
     closeM('mo-crs');
     DB.courses=DB.courses.filter(x=>x.id!==eidC);
@@ -2542,6 +2677,123 @@ function delCrs(){
   });
 }
 
+/* ─── SECTION MODAL ───────────────────────────────────────
+   course_code is fixed at creation and never rewritten on edit — deep links,
+   the change log and offerings.source_id all key on it, so renaming a section
+   changes its label, not its identity. */
+let eidS=null;
+const secCodeSafe=v=>String(v??'').trim().replace(/[^A-Za-z0-9]+/g,'').toUpperCase()||'S';
+
+/* Shared by both modals: reconcile the term checkboxes against the offerings
+   that exist. A term is only un-checked away when the offering is still empty;
+   anything with an instructor, days or a modality has to be removed on the
+   Schedule, where the consequences are visible. */
+async function syncCourseTerms(idPfx,c){
+  for(const t of TERMS){
+    const on=chk(idPfx+t);
+    const ex=DB.offerings.find(o=>o.courseId===c.id&&o.term===t);
+    if(on&&!ex){
+      const off={id:genid(),term:t,prefix:c.prefix,courseNumber:c.number,courseId:c.id,
+        fullName:c.fullName,section:c.section||'',
+        instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',
+        psuCap1:'',psuCap2:'',days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',
+        roomNumber:'',psuText:'',modality:'',grugb:c.grugb||'GR',enrollment:'',
+        i1Email:'',i2Email:'',adminNotes:'',pot:'',crnPsu:'',crnOhsu:'',printStatus:'Print'};
+      const {data:oi,error:oe}=await sb.from('offerings').insert(offRow(off)).select().single();
+      if(oe){setSS('⚠ Term add failed: '+oe.message);}
+      else{off._uuid=oi.id;off.id=oi.source_id||oi.id;DB.offerings.push(off);
+           logChange('create',null,snapOff(off),oi.id);}
+    }else if(!on&&ex&&!(ex.instructor1||ex.days||ex.modality)){
+      const u2=ex._uuid,before=snapOff(ex);
+      DB.offerings=DB.offerings.filter(o=>!(o.courseId===c.id&&o.term===t));
+      if(u2){const {error:de}=await sb.from('offerings').delete().eq('id',u2);
+             if(de)setSS('⚠ Term remove failed: '+de.message);else logChange('delete',before,null,u2);}
+    }
+  }
+}
+
+function openSecM(id){
+  eidS=id??null;
+  const sel=$('sm-course');
+  const bases=DB.courses.filter(c=>!c.parentId)
+    .sort((a,b)=>(a.fullName||'').localeCompare(b.fullName||''));
+  sel.innerHTML='<option value="">— choose a course —</option>'+
+    bases.map(c=>`<option value="${esc(c.id)}">${esc(c.fullName)}</option>`).join('');
+  $('sm-title').textContent=id?'Edit Section':'Add Section';
+  $('btn-del-sec').style.display=id?'inline-flex':'none';
+  if(id){
+    const s=DB.courses.find(x=>x.id===id);if(!s)return;
+    // The parent is fixed: moving a section between courses is a delete and a
+    // re-add, not an edit, because its offerings would have to move with it.
+    sel.value=s.parentId||'';sel.disabled=true;
+    setv('sm-sec',s.section||'');
+    TERMS.forEach(t=>setc('sm-t-'+t,DB.offerings.some(o=>o.courseId===id&&o.term===t)));
+  }else{
+    sel.disabled=false;sel.value='';setv('sm-sec','');
+    TERMS.forEach(t=>setc('sm-t-'+t,false));
+  }
+  secPreview();
+  openM('mo-sec');
+}
+function secPreview(){
+  const c=DB.courses.find(x=>x.id===val('sm-course'));
+  const s=val('sm-sec').trim();
+  $('sm-preview').textContent=(c&&s)?crsFullName(c.prefix,c.number,c.number2,c.title,s):'—';
+}
+async function saveSec(){
+  const pid=val('sm-course'),sec=val('sm-sec').trim();
+  const p=DB.courses.find(x=>x.id===pid&&!x.parentId);
+  if(!p){alert('Choose a course.');return;}
+  if(!sec){alert('Section value required.');return;}
+  // ':' and '/' are the two characters full_name uses structurally.
+  if(/[:\/]/.test(sec)){alert('A section cannot contain ":" or "/".');return;}
+  const clash=DB.courses.find(x=>x.parentId===p.id&&x.id!==eidS&&
+    String(x.section||'').toLowerCase()===sec.toLowerCase());
+  if(clash){alert(`${p.prefix} ${p.number} already has a section "${clash.section}".`);return;}
+
+  const fullName=crsFullName(p.prefix,p.number,p.number2,p.title,sec);
+  let rec;
+  if(eidS){
+    rec=DB.courses.find(x=>x.id===eidS);if(!rec)return;
+    const ok=await sbSave(sb.from('courses')
+      .update({section:sec,full_name:fullName}).eq('id',rec._uuid),'● Section saved');
+    if(!ok)return;
+    rec.section=sec;rec.fullName=fullName;
+  }else{
+    let code=`${p.id}-${secCodeSafe(sec)}`;const stem=code;
+    const letters='bcdefghijklmnop';let k=0;
+    while(DB.courses.some(c=>c.id===code)){code=stem+'_'+letters[k++];}
+    // Attributes are copied from the base at insert AND re-inherited on every
+    // load, so the stored copy is a convenience for readers outside this app.
+    const row=Object.assign({},crsRow(Object.assign({},p,{id:code,fullName})),
+      {section:sec,parent_id:p._uuid});
+    const {data:ins,error}=await sb.from('courses').insert(row).select().single();
+    if(error){setSS('⚠ Not added: '+error.message);return;}
+    rec=Object.assign({},p,{id:ins.course_code,_uuid:ins.id,fullName,
+      section:sec,parentId:p.id,parentUuid:p._uuid});
+    DB.courses.push(rec);
+  }
+  await syncCourseTerms('sm-t-',rec);
+  closeM('mo-sec');renderCat();renderSched();setSS('● Section saved');
+}
+function delSec(){
+  const s=DB.courses.find(x=>x.id===eidS);const uuid=s?s._uuid:null;
+  showCfm('Delete section?',
+    `Delete section “${s?s.section:''}” of ${s?s.prefix+' '+s.number:'this course'} and all of its offerings? The base course is not affected.`,
+    async()=>{
+      closeM('mo-sec');
+      DB.courses=DB.courses.filter(x=>x.id!==eidS);
+      DB.offerings=DB.offerings.filter(x=>x.courseId!==eidS);
+      renderCat();renderSched();
+      if(uuid){
+        // Offerings first — courses FK is ON DELETE RESTRICT.
+        const r1=await sb.from('offerings').delete().eq('course_id',uuid);
+        const r2=r1.error?r1:await sb.from('courses').delete().eq('id',uuid);
+        if(r1.error||r2.error){setSS('⚠ Delete failed: '+((r1.error||r2.error).message)+' — reverting');await reloadAll();return;}
+        setSS('● Section deleted');
+      }
+    });
+}
 /* ─── INSTRUCTOR MODAL ──────────────────────────────────────── */
 function openIM(id){
   eidI=id??null;
@@ -2638,10 +2890,10 @@ function triggerSave(){
 /* ─── CSV EXPORTS ───────────────────────────────────────────── */
 function expSched(){
   const term=val('f-term'),pfx=val('f-pfx');
-  const rows=[['Term','Prefix','Course','PSU CRN(s)','OHSU CRN(s)','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','LMS','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
+  const rows=[['Term','Prefix','Course','Section','PSU CRN(s)','OHSU CRN(s)','Print','Instructor 1','Instructor 2','POT','Days','Time','Modality','LMS','Total Cap','Enrollment','OHSU Cap 1','OHSU Cap 2','PSU Cap 1','PSU Cap 2','Where Roomed','Room #','Restrict OHSU','Restrict PSU','PSU Text','GR/UG/B','Admin Notes']];
   DB.offerings.filter(o=>(!term||o.term===term)&&(!pfx||o.prefix===pfx))
     .sort((a,b)=>(TO[a.term]-TO[b.term])||a.prefix.localeCompare(b.prefix))
-    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.crnPsu??'',o.crnOhsu??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.lms,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
+    .forEach(o=>rows.push([TL[o.term]??o.term,o.prefix,o.fullName,o.section??'',o.crnPsu??'',o.crnOhsu??'',o.printStatus||'Print',o.instructor1,o.instructor2,o.pot??'',o.days,o.time,o.modality,o.lms,o.totalCap,o.enrollment,o.ohsuCap1,o.ohsuCap2,o.psuCap1,o.psuCap2,o.roomed,o.roomNumber,o.restrictOhsu,o.restrictPsu,o.psuText,o.grugb,o.adminNotes]));
   dlCSV(rows,'SPH_Schedule_AY26-27.csv');
 }
 function expCht(){
@@ -3054,7 +3306,9 @@ function wireEvents(){
   $('cc-lvl').addEventListener('change',renderCat);
   $('cc-cr').addEventListener('change',renderCat);
   $('cc-q').addEventListener('input',renderCat);
+  $('cc-sect').addEventListener('change',renderCat);
   $('btn-add-crs').addEventListener('click',()=>openCM(null));
+  $('btn-add-sec').addEventListener('click',()=>openSecM(null));
   $('cat-tb').addEventListener('click',e=>{
     const a=e.target.closest('a.clink');
     // Let ctrl/cmd/middle-click open a real new tab — the href is a working URL.
@@ -3064,6 +3318,11 @@ function wireEvents(){
   });
   $('btn-save-crs').addEventListener('click',saveCrs);
   $('btn-del-crs').addEventListener('click',delCrs);
+  // Section modal
+  $('sm-course').addEventListener('change',secPreview);
+  $('sm-sec').addEventListener('input',secPreview);
+  $('btn-save-sec').addEventListener('click',saveSec);
+  $('btn-del-sec').addEventListener('click',delSec);
   // Instructors
   $('i-cat').addEventListener('change',renderInst);
   $('i-q').addEventListener('input',renderInst);
