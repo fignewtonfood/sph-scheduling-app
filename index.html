@@ -131,6 +131,13 @@ td{padding:7px 10px;vertical-align:middle}
 
 /* Notes tooltip */
 .has-notes { cursor: help; border-bottom: 1px dotted var(--teal); }
+/* Course title → course page. Same quiet treatment as .ilink; when it also
+   carries a tooltip (admin notes, or the description for signed-out visitors)
+   the cursor must read as "clickable", not "explain", so this wins over
+   .has-notes on specificity rather than by ordering. */
+a.clink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray);cursor:pointer}
+a.clink:hover{color:var(--teal);border-bottom-color:var(--teal)}
+a.clink.has-notes{cursor:pointer;border-bottom-color:var(--teal)}
 tbody tr.incomplete td{background:#FEF3C7}
 tbody tr.incomplete:hover td{background:#FDE9A9}
 tbody tr.no-off td{color:#94A3B8}
@@ -165,6 +172,43 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
   pointer-events: none;
   box-shadow: 0 4px 12px rgba(0,0,0,.3);
 }
+/* ═══ COURSE PAGE ════════════════════════════════════════════
+   A detail view rather than a tab: reachable from any course title, absent
+   from the nav. Mirrors the faculty-profile layout so the two apps read as
+   one system. */
+.crs-scroll{flex:1;overflow:auto;padding:20px 16px 60px}
+.crs-wrap{max-width:900px;margin:0 auto}
+.cback{background:none;border:none;color:var(--teal);font-size:13px;cursor:pointer;padding:4px 0;margin-bottom:12px;font-family:inherit}
+.cback:hover{text-decoration:underline}
+.chead{background:white;border:1px solid var(--mgray);border-radius:8px;padding:18px 20px;margin-bottom:14px}
+.chead h2{font-size:20px;color:var(--navy);font-weight:600;line-height:1.35}
+.chead .csub{font-size:12px;color:var(--dgray);margin-top:5px;letter-spacing:.3px}
+.cfacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.cfact{background:var(--lgray);border:1px solid #E6ECF4;border-radius:6px;padding:6px 12px;font-size:13px;min-width:96px}
+.cfact b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--dgray);font-weight:700;margin-bottom:2px}
+.ccard{background:white;border:1px solid var(--mgray);border-radius:8px;padding:16px 20px;margin-bottom:14px}
+.ccard h3{font-size:12px;color:var(--navy);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;font-weight:700}
+.cdesc{font-size:14px;line-height:1.65;white-space:pre-wrap}
+.cgate{font-size:13px;color:var(--dgray);font-style:italic}
+.clinks{display:flex;flex-wrap:wrap;gap:10px}
+.clinks a{font-size:12.5px;color:var(--teal);text-decoration:none;border:1px solid var(--mgray);border-radius:6px;padding:7px 13px}
+.clinks a:hover{background:var(--lgray);border-color:var(--teal)}
+.cayg{border:1px solid var(--mgray);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.cayg>summary{cursor:pointer;padding:9px 12px;background:var(--lgray);font-size:12.5px;font-weight:600;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px}
+.cayg>summary::-webkit-details-marker{display:none}
+.cayg>summary::before{content:'▸';color:var(--teal);font-size:11px}
+.cayg[open]>summary::before{content:'▾'}
+.cayn{font-weight:400;color:var(--dgray);font-size:11px}
+.ctgrp{padding:2px 12px 10px}
+.cth{font-size:11px;font-weight:700;color:var(--dgray);text-transform:uppercase;letter-spacing:.5px;padding:9px 0 2px}
+.corow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid #EFF3F8;font-size:12.5px}
+.corow .cmeta{color:var(--dgray);font-size:11.5px;text-align:right;white-space:nowrap}
+/* On-Campus frozen header + time ruler. `top` on .g-times is set from the
+   header's measured height after each render — the header's height depends on
+   font metrics, so hardcoding it drifts. */
+#gantt-wrap .g-hdr{position:sticky;top:0;z-index:6}
+#gantt-wrap .g-times{position:sticky;top:0;z-index:5}
+
 /* POT field visibility */
 .pot-row { display: none; }
 
@@ -380,6 +424,11 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       </div>
     </div>
 
+    <!-- COURSE PAGE (detail view — no nav button; reached from a course title) -->
+    <div class="view" id="view-course">
+      <div class="crs-scroll" id="crs-scroll"><div class="crs-wrap" id="crs-body"></div></div>
+    </div>
+
     <!-- TERM DRAFT BUILDER -->
     <div class="view" id="view-termdraft">
       <div class="toolbar">
@@ -590,6 +639,12 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
       <div><label>GR / UG / B</label><select id="cm-grugb"><option>GR</option><option>UG</option><option>B</option></select></div>
       <div><label>FTE Exempt</label><select id="cm-fte"><option value="No">No</option><option value="Yes">Yes</option></select></div>
       <div><label>Max Cap</label><input id="cm-cap" type="number" placeholder="10"><div class="fhint">Defaults to 10 if left blank.</div></div>
+      <div class="s2"><label>Course Description</label><textarea id="cm-desc" rows="4"></textarea>
+        <div class="fhint">Shown on the course page, and as the hover text for this course on the public Schedule.</div></div>
+      <div class="s2"><label>Catalog URL (PSU)</label><input id="cm-cat-psu">
+        <div class="fhint" id="cm-hint-psu"></div></div>
+      <div class="s2"><label>Catalog URL (OHSU)</label><input id="cm-cat-ohsu">
+        <div class="fhint" id="cm-hint-ohsu"></div></div>
       <div id="cm-terms" class="s2"></div>
     </div></div>
     <div class="mft">
@@ -657,10 +712,10 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 
 <div class="mo" id="mo-lists">
   <div class="modal med">
-    <div class="mhd"><h3>Edit Dropdown Lists</h3><button class="mx" data-close="mo-lists">×</button></div>
+    <div class="mhd"><h3>Edit Lists &amp; Defaults</h3><button class="mx" data-close="mo-lists">×</button></div>
     <div class="mb"><div class="fg">
       <div class="s2"><label>List</label><select id="ld-key"></select></div>
-      <div class="s2"><label>Options — one per line, in display order</label>
+      <div class="s2"><label>Values — one per line, in order</label>
         <textarea id="ld-items" rows="12" style="font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea>
         <div class="fhint" id="ld-hint"></div>
       </div>
@@ -786,6 +841,14 @@ let TO={};               // code → sort index
 let TC={};               // code → badge class
 const TC_PALETTE=['b-su','b-fa','b-wi','b-sp'];
 const PROGS=['BSTA','CPH','EPI','ESHH','HSMP','IPE','PHE','UNST'];
+/* App-wide catalog links. A course stores a URL only when it OVERRIDES these,
+   so editing the default (⚙ Lists → "Catalog URL defaults") re-points every
+   course that never set its own — which is what the annual bulletin roll
+   (2026-2027 → 2027-2028) actually needs. Order is fixed: PSU, then OHSU. */
+const CATALOG_URL_DEFAULTS=[
+  'https://pdx.smartcatalogiq.com/en/2026-2027/bulletin/school-of-public-health',
+  'https://catalog.ohsu.edu/content.php?catoid=1&navoid=19'
+];
 const FTE_CATS=new Set(['OHSU Primary','Staff','Other','NPS','OHSU Adjunct']);
 const GDAYS=['MON','TUE','WED','THU','FRI'];
 // Single-token → Gantt column (Mon–Fri). The Gantt parses each offering's
@@ -972,7 +1035,9 @@ async function loadData(){
     permission:c.permission_required?'Yes':'No',
     grugb:c.level||'GR',
     fteExempt:c.fte_exempt?'Yes':'No',
-    maxCap:(c.max_cap??'')+''
+    maxCap:(c.max_cap??'')+'',
+    description:c.description||'',
+    catUrlPsu:c.catalog_url_psu||'', catUrlOhsu:c.catalog_url_ohsu||''
   }));
   const courseByUuid={}; courses.forEach(c=>{courseByUuid[c._uuid]=c;});
 
@@ -1083,6 +1148,11 @@ function switchView(name){
   // Term Draft is admin-only. `isAdmin` is false for PDs and viewers alike, so
   // this covers both — the hidden nav button is presentation, this is the gate.
   if(name==='termdraft'&&!(signedIn&&isAdmin))name='schedule';
+  // Leaving a course page by clicking a tab: strip the param so a refresh
+  // doesn't drop the person back onto the course they just left.
+  const _u=new URL(window.location);
+  if(_u.searchParams.has('course')){_u.searchParams.delete('course');history.replaceState({},'',_u);}
+  crsCode=null;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.classList.remove('active'));
   $('view-'+name).classList.add('active');
@@ -1468,12 +1538,25 @@ function renderSched(){
     // Internal detail rather than a secret: admin_notes is still in the anon
     // payload (offerings is anon-granted and read with select('*')), so this
     // keeps notes off the public schedule without pretending to withhold them.
+    const _crsT=DB.courses.find(c=>c.id===o.courseId);
     const hasNotes=signedIn&&!!(o.adminNotes&&String(o.adminNotes).trim());
-    const nameOpen=hasNotes?`<span class="has-notes" data-notes="${esc(o.adminNotes)}">`:'<span>';
+    // Signed-in tiers hover for the operational note; signed-out visitors get
+    // the catalog description, which is the only thing that text can usefully
+    // be for them. Neither is a substitute for the other, so they don't stack.
+    const _descT=(!signedIn&&_crsT&&_crsT.description)?String(_crsT.description).trim():'';
+    const tipTxt=hasNotes?String(o.adminNotes)
+                :(_descT.length>320?_descT.slice(0,320).replace(/\s+\S*$/,'')+'…':_descT);
+    // A native title= would race the custom tooltip, so only one of them exists
+    // at a time: hover text when there is any, the affordance hint otherwise.
+    const tipAttr=tipTxt?` data-notes="${esc(tipTxt)}"`:' title="View course page"';
+    const nameOpen=o.courseId
+      ? `<a class="clink${tipTxt?' has-notes':''}"${tipAttr} href="?course=${esc(encodeURIComponent(o.courseId))}" data-course="${esc(o.courseId)}">`
+      : (tipTxt?`<span class="has-notes" data-notes="${esc(tipTxt)}">`:'<span>');
+    const nameClose=o.courseId?'</a>':'</span>';
     const noteInd=hasNotes?' <span style="color:var(--teal);font-size:11px" title="Has notes">ℹ</span>':'';
     const potBadge=(/^Summer/i.test(o.term)&&o.pot)?` <span style="background:var(--ltgold);color:#92400E;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap">POT ${esc(o.pot)}</span>`:'';
     const noPrint=(o.printStatus==='No Print')?' <span title="No Print — excluded from the public schedule" style="font-size:11px">🚫</span>':'';
-    const _crs=DB.courses.find(c=>c.id===o.courseId);
+    const _crs=_crsT;
     const permReq=(_crs&&_crs.permission==='Yes')?'<span title="Requires instructor/department permission to register" style="font-size:11px">🔑</span>':'';
     const _rParts=[]; const _ro=String(o.restrictOhsu||'').trim(), _rp=String(o.restrictPsu||'').trim();
     if(_ro)_rParts.push('OHSU: '+_ro); if(_rp)_rParts.push('PSU: '+_rp);
@@ -1483,7 +1566,7 @@ function renderSched(){
     const flags=restr+permReq+(isNight(o)?'<span title="Night class (starts ≥ 4pm)">🌙</span>':'')+(isOnline(o)?'<span title="Online">🖥️</span>':'');
     h+=`<tr${incomplete?' class="incomplete"':''} data-uuid="${esc(o._uuid||'')}">
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
-      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}</span>${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
+      <td style="max-width:260px">${nameOpen}${esc(o.fullName)}${nameClose}${warnMark}${noPrint}${noteInd}${potBadge}</td><td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality,o.lms)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
       <td><input type="number" class="enr ei" min="0" step="1" data-id="${esc(o.id)}" value="${esc(o.enrollment)}" placeholder="–" ${ro}></td>
@@ -1536,10 +1619,10 @@ function renderGantt(){
   const pct=s=>((s/N)*100).toFixed(2)+'%';
   const hrlbl=si=>{const h=7+Math.floor(si/2),m=si%2?'30':'00';return m==='00'?(h<12?h+'am':h===12?'12pm':(h-12)+'pm'):''};
   let html='<div style="min-width:900px">';
-  html+='<div style="display:grid;grid-template-columns:260px 1fr"><div style="background:#334155;color:white;padding:6px 10px;font-size:11px;font-weight:700">Course</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
+  html+='<div class="g-hdr" style="display:grid;grid-template-columns:260px 1fr"><div style="background:#334155;color:white;padding:6px 10px;font-size:11px;font-weight:700">Course</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
   GDAYS.forEach(d=>html+=`<div style="background:#1F3864;color:white;text-align:center;font-size:11px;font-weight:700;padding:5px;border-right:1px solid #2d4a7a">${d}</div>`);
   html+='</div></div>';
-  html+='<div style="display:grid;grid-template-columns:260px 1fr;background:#F8FAFC"><div style="height:16px;background:#EFF3F8"></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
+  html+='<div class="g-times" style="display:grid;grid-template-columns:260px 1fr;background:#F8FAFC"><div style="height:16px;background:#EFF3F8"></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
   for(let d=0;d<5;d++){
     html+=`<div style="position:relative;height:16px;border-right:1px solid #E2EAF4">`;
     for(let si=0;si<N;si++){const l=hrlbl(si);if(l)html+=`<span style="position:absolute;left:${pct(si)};font-size:8px;color:#94A3B8;transform:translateX(-50%);white-space:nowrap">${l}</span>`;}
@@ -1578,6 +1661,14 @@ function renderGantt(){
   }
   html+='</div></div></div>';
   wrap.innerHTML=html;
+  // The time ruler stacks directly under the frozen day header. Its offset is
+  // the header's rendered height, which depends on font metrics and zoom — so
+  // measure it rather than hardcoding a number that drifts.
+  const _fit=()=>{
+    const gh=wrap.querySelector('.g-hdr'),gt=wrap.querySelector('.g-times');
+    if(gh&&gt&&gh.offsetHeight)gt.style.top=gh.offsetHeight+'px';
+  };
+  _fit(); requestAnimationFrame(_fit);
 }
 
 /* ─── ON-CAMPUS REPORT ──────────────────────────────────────────
@@ -1855,7 +1946,7 @@ function renderCat(){
     h+=`<tr${noOff?' class="no-off" title="No offerings scheduled in any term"':''}>
       <td><strong>${esc(c.prefix)}</strong></td>
       <td>${esc(c.number)}${c.number2?'/'+esc(c.number2):''}</td>
-      <td style="max-width:240px">${esc(c.title)}</td>
+      <td style="max-width:240px"><a class="clink" href="?course=${esc(encodeURIComponent(c.id))}" data-course="${esc(c.id)}" title="View course page">${esc(c.title)}</a></td>
       <td style="text-align:center">${esc(c.credits)}</td>
       <td style="text-align:center">${esc(c.pnp)}</td>
       <td class="col-internal" style="text-align:center">${c.permission==='Yes'?'✓':''}</td>
@@ -1905,6 +1996,145 @@ function toggleOff(cid,pfx,term){
       logChange('create',null,snapOff(off),oi.id);
     });
   }
+}
+
+/* ─── COURSE PAGE ───────────────────────────────────────────────
+   A per-course detail view, the scheduling-side counterpart to a faculty
+   profile. Reached from any course title (Schedule or Catalog) and by deep
+   link: index.html?course=<course_code>.
+
+   Public sees the catalog facts. PD and admin additionally see the offering
+   history — every term this course has run, grouped by academic year, with the
+   instructors linked back into the faculty app. Flip SHOW_HISTORY below to
+   `signedIn` if read-only viewers should see the history as well; everything
+   else about the page is identical between tiers. */
+let crsCode=null;          // course_code currently displayed, or null
+let crsReturnView='schedule';   // tab to restore when the page is dismissed
+
+function courseHistoryVisible(){return canEdit();}   // ← SHOW_HISTORY
+
+function renderCourse(code){
+  const wrap=$('crs-body');
+  const c=DB.courses.find(x=>String(x.id)===String(code));
+  if(!c){
+    wrap.innerHTML=`<button class="cback" id="crs-back">← Back</button>
+      <div class="ccard"><div class="cgate">That course isn’t in the catalog.</div></div>`;
+    $('crs-back').onclick=closeCourse;
+    return;
+  }
+  const lvlTxt={GR:'Graduate',UG:'Undergraduate',B:'Graduate &amp; Undergraduate'}[c.grugb]||esc(c.grugb||'—');
+  let h=`<button class="cback" id="crs-back">← Back</button>`;
+
+  h+=`<div class="chead">
+    <h2>${esc(c.title||c.fullName||'Untitled course')}</h2>
+    <div class="csub">${esc(c.prefix)} ${esc(c.number)}${c.number2?' / '+esc(c.number2):''} · ${lvlTxt}</div>
+    <div class="cfacts">
+      <div class="cfact"><b>Credits</b>${esc(c.credits)||'—'}</div>
+      <div class="cfact"><b>Grading</b>${gradingLabel(c.pnp)}</div>
+      <div class="cfact"><b>Permission to enroll</b>${c.permission==='Yes'?'Required':'Not required'}</div>
+    </div>
+  </div>`;
+
+  h+=`<div class="ccard"><h3>Description</h3>`+
+     (N_(c.description)?`<div class="cdesc">${esc(c.description)}</div>`
+                       :`<div class="cgate">No description on file.</div>`)+`</div>`;
+
+  const uPsu=catalogUrl(c,'psu'), uOhsu=catalogUrl(c,'ohsu');
+  if(uPsu||uOhsu){
+    h+=`<div class="ccard"><h3>Catalog</h3><div class="clinks">`+
+       (uPsu?`<a href="${esc(uPsu)}" target="_blank" rel="noopener">PSU Bulletin ↗</a>`:'')+
+       (uOhsu?`<a href="${esc(uOhsu)}" target="_blank" rel="noopener">OHSU Catalog ↗</a>`:'')+
+       `</div></div>`;
+  }
+
+  if(courseHistoryVisible())
+    h+=`<div class="ccard"><h3>Offerings</h3>${courseOfferingsHTML(c)}</div>`;
+
+  wrap.innerHTML=h;
+  $('crs-back').onclick=closeCourse;
+}
+const N_=v=>v!=null&&String(v).trim()!=='';
+function gradingLabel(v){
+  const s=String(v||'').trim();
+  if(!s)return '—';
+  if(s==='A-F/P/NP')return 'A–F or P/NP';
+  return esc(s).replace('A-F','A–F');
+}
+
+/* Grouped by academic year (newest first), then term, mirroring the faculty
+   app's teaching card. Only terms this tier can actually see are listed —
+   TERM_ROWS is already RLS-filtered, so an offering in a hidden term simply
+   isn't grouped rather than being filtered out by hand. */
+function courseOfferingsHTML(c){
+  const offs=DB.offerings.filter(o=>o.courseId===c.id&&termRow(o.term));
+  if(!offs.length)return `<div class="cgate">This course has no offerings on record.</div>`;
+  const ays=[...new Set(offs.map(o=>termRow(o.term).academic_year))].sort().reverse();
+  const multi=ays.length>1;
+  let h='';
+  ays.forEach((ay,idx)=>{
+    const inAY=offs.filter(o=>termRow(o.term).academic_year===ay);
+    // Newest year open; older ones collapsed so the click affordance carries
+    // meaning. A single year has nothing to collapse toward, so it stays open.
+    const open=!multi||idx===0;
+    h+=`<details class="cayg"${open?' open':''}>
+      <summary>${esc(ay)} <span class="cayn">${inAY.length} offering${inAY.length===1?'':'s'}</span></summary>`;
+    const codes=[...new Set(inAY.map(o=>o.term))]
+      .sort((a,b)=>((termRow(a)||{}).sort_order??99)-((termRow(b)||{}).sort_order??99));
+    h+=`<div class="ctgrp">`;
+    codes.forEach(code=>{
+      h+=`<div class="cth">${esc((termRow(code)||{}).label||code)}</div>`;
+      inAY.filter(o=>o.term===code).forEach(o=>{
+        const who=[o.instructor1,o.instructor2].filter(Boolean).map(facLink).join(' &amp; ')
+                  ||'<span style="color:var(--dgray)">No instructor assigned</span>';
+        const meta=[o.days,o.time,o.modality].filter(Boolean).join(' · ');
+        h+=`<div class="corow"><div>${who}</div><div class="cmeta">${esc(meta)}</div></div>`;
+      });
+    });
+    h+=`</div></details>`;
+  });
+  return h;
+}
+
+/* Router. The course page is a `.view` like any tab, but has no nav button, so
+   it gets its own show/hide rather than going through switchView(). */
+function openCourse(code,push=true){
+  if(!code)return;
+  const cur=document.querySelector('.view.active');
+  if(cur&&cur.id!=='view-course')crsReturnView=cur.id.replace('view-','');
+  if(push){
+    const u=new URL(window.location);u.searchParams.set('course',code);
+    history.pushState({course:code},'',u);
+  }
+  crsCode=code;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('nav button[data-view]').forEach(b=>b.classList.remove('active'));
+  $('view-course').classList.add('active');
+  renderCourse(code);
+  const s=$('crs-scroll');if(s)s.scrollTop=0;
+}
+/* If this entry was pushed by openCourse, a real Back is correct — it returns
+   to wherever the person actually came from, including another course page.
+   Arriving by deep link leaves no such entry, so fall through to a swap. */
+function closeCourse(){
+  if(history.state&&history.state.course){history.back();return;}
+  const u=new URL(window.location);u.searchParams.delete('course');
+  history.replaceState({},'',u);
+  crsCode=null;
+  switchView(crsReturnView||'schedule');
+}
+window.addEventListener('popstate',()=>{
+  const code=new URL(window.location).searchParams.get('course');
+  if(code)openCourse(code,false);
+  else if(crsCode!==null){crsCode=null;switchView(crsReturnView||'schedule');}
+});
+/* index.html?course=<course_code> — from a bookmark, an email, or the faculty
+   app. Returns true if it handled the load, so the offering deep link (which
+   also wants the schedule tab) doesn't fight it for the same page load. */
+function handleCourseDeepLink(){
+  const code=new URL(window.location).searchParams.get('course');
+  if(!code)return false;
+  openCourse(code,false);
+  return true;
 }
 
 /* ─── INSTRUCTORS ───────────────────────────────────────────── */
@@ -2215,13 +2445,18 @@ function openCM(id){
     ensureOpt('cm-pfx',c.prefix);setv('cm-pfx',c.prefix);setv('cm-num',c.number);setv('cm-num2',c.number2);setv('cm-cr',c.credits);
     setv('cm-ttl',c.title);setv('cm-pnp',c.pnp);setv('cm-perm',c.permission);setv('cm-grugb',c.grugb);
     setv('cm-fte',c.fteExempt);setv('cm-cap',c.maxCap);
-    
+    setv('cm-desc',c.description||'');
+    setv('cm-cat-psu',c.catUrlPsu||'');setv('cm-cat-ohsu',c.catUrlOhsu||'');
     TERMS.forEach(t=>setc('cm-t-'+t,DB.offerings.some(o=>o.courseId===id&&o.term===t)));
   }else{
-    ['cm-num','cm-num2','cm-cr','cm-ttl'].forEach(f=>setv(f,''));
+    ['cm-num','cm-num2','cm-cr','cm-ttl','cm-desc','cm-cat-psu','cm-cat-ohsu'].forEach(f=>setv(f,''));
     setv('cm-cap','10');            // new courses start at the house default
     TERMS.forEach(t=>setc('cm-t-'+t,false));
   }
+  // Blank means "use the app default", so show that default AS the placeholder
+  // rather than pre-filling it — pre-filling would silently pin every new
+  // course to today's URL and break the next bulletin roll.
+  catalogPlaceholders();
   openM('mo-crs');
 }
 /* legacy course object → courses table columns */
@@ -2232,7 +2467,9 @@ function crsRow(d){
   return {course_code:d.id, prefix:d.prefix, number:d.number, number2:T(d.number2),
     title:d.title, full_name:d.fullName, credits:T(d.credits), grading:T(d.pnp),
     level:T(d.grugb), permission_required:B(d.permission), fte_exempt:B(d.fteExempt),
-    max_cap:I(d.maxCap)};
+    max_cap:I(d.maxCap),
+    description:T(d.description),
+    catalog_url_psu:T(d.catUrlPsu), catalog_url_ohsu:T(d.catUrlOhsu)};
 }
 async function saveCrs(){
   const pfx=val('cm-pfx'),num=val('cm-num').trim();
@@ -2250,7 +2487,9 @@ async function saveCrs(){
   }
   const data={id,_uuid:uuid,prefix:pfx,number:num,number2:num2,title,fullName:`${pfx} - ${nd}: ${title}`,
     credits:val('cm-cr'),pnp:val('cm-pnp'),permission:val('cm-perm'),grugb:val('cm-grugb'),fteExempt:val('cm-fte'),
-    maxCap:val('cm-cap').trim()||'10'};   // blank → 10, including on edit of an older course
+    maxCap:val('cm-cap').trim()||'10',   // blank → 10, including on edit of an older course
+    description:val('cm-desc').trim(),
+    catUrlPsu:val('cm-cat-psu').trim(),catUrlOhsu:val('cm-cat-ohsu').trim()};
   const row=crsRow(data);
 
   // Persist the course first — its UUID is needed for any new term offerings.
@@ -2619,8 +2858,38 @@ const LISTS={
     label:'LMS (offering modal)',
     defaults:['Brightspace','Sakai','Canvas'],
     apply(){populateSelect('om-lms',getList('lms'),true);}
+  },
+  // Not a dropdown — a two-line ordered pair. It rides the same app_lists
+  // plumbing (admin-only, RLS-protected, restore-to-default) rather than
+  // earning a settings table of its own for two strings.
+  catalogUrls:{
+    label:'Catalog URL defaults (PSU, then OHSU)',
+    defaults:CATALOG_URL_DEFAULTS.slice(),
+    noDedupe:true,   // two identical URLs is legal; de-duping would eat one
+    hint:'Line 1 = PSU catalog, line 2 = OHSU catalog. Courses that leave their Catalog URL blank follow these.',
+    apply(){catalogPlaceholders();}
   }
 };
+/* Resolution order for a catalog link: the course's own value, else the
+   app-wide default, else the value compiled into this file. */
+function catalogDefault(which){
+  const i=which==='ohsu'?1:0;
+  const l=getList('catalogUrls');
+  return String((l&&l[i])||CATALOG_URL_DEFAULTS[i]||'').trim();
+}
+function catalogUrl(c,which){
+  const own=which==='ohsu'?(c&&c.catUrlOhsu):(c&&c.catUrlPsu);
+  return (own&&String(own).trim())||catalogDefault(which);
+}
+/* The course modal shows the live default as placeholder text. */
+function catalogPlaceholders(){
+  const p=$('cm-cat-psu'),o=$('cm-cat-ohsu');
+  if(p)p.placeholder=catalogDefault('psu');
+  if(o)o.placeholder=catalogDefault('ohsu');
+  const hp=$('cm-hint-psu'),ho=$('cm-hint-ohsu');
+  if(hp)hp.textContent='Blank = use the school default shown above.';
+  if(ho)ho.textContent='Blank = use the school default shown above.';
+}
 // Live prefix list (falls back to PROGS defaults) for reports and aggregation.
 function progs(){return getList('prefixes');}
 function getList(key){
@@ -2662,13 +2931,18 @@ function loadListIntoEditor(key){
   ldKey=key;
   $('ld-items').value=getList(key).join('\n');
   const isCustom=Array.isArray(DB.lists&&DB.lists[key]);
-  $('ld-hint').textContent=isCustom?'Customized — differs from defaults.':'Using built-in defaults.';
+  const status=isCustom?'Customized — differs from defaults.':'Using built-in defaults.';
+  const note=LISTS[key].hint;
+  $('ld-hint').textContent=note?note+' · '+status:status;
 }
 function saveListEdits(){
   const items=$('ld-items').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  // de-dup, preserve order
-  const seen=new Set(),clean=[];
-  items.forEach(v=>{if(!seen.has(v)){seen.add(v);clean.push(v);}});
+  // de-dup, preserve order — except for positional lists (catalogUrls), where
+  // line number IS the meaning and collapsing a duplicate would shift OHSU
+  // into the PSU slot.
+  let clean;
+  if(LISTS[ldKey].noDedupe){clean=items.slice();}
+  else{const seen=new Set();clean=[];items.forEach(v=>{if(!seen.has(v)){seen.add(v);clean.push(v);}});}
   if(!DB.lists)DB.lists={};
   const isDefault=JSON.stringify(clean)===JSON.stringify(LISTS[ldKey].defaults);
   if(isDefault)delete DB.lists[ldKey]; else DB.lists[ldKey]=clean;
@@ -2738,7 +3012,12 @@ function wireEvents(){
   $('btn-sync').addEventListener('click',syncData);
   document.querySelector('#sched-tbl thead').addEventListener('click',e=>{const th=e.target.closest('th[data-col]');if(th)sortSched(th.dataset.col);});
   $('sched-tb').addEventListener('change',e=>{const i=e.target.closest('.ei');if(i)updateEnroll(i.dataset.id,i.value);});
-  $('sched-tb').addEventListener('click',e=>{const b=e.target.closest('.eo');if(b)openOM(b.dataset.id);});
+  $('sched-tb').addEventListener('click',e=>{
+    const a=e.target.closest('a.clink');
+    // Let ctrl/cmd/middle-click open a real new tab — the href is a working URL.
+    if(a&&!(e.metaKey||e.ctrlKey||e.shiftKey||e.button)){e.preventDefault();openCourse(a.dataset.course);return;}
+    const b=e.target.closest('.eo');if(b)openOM(b.dataset.id);
+  });
   // Offering modal
   $('om-term').addEventListener('change', togglePotRow);
   $('om-mod').addEventListener('change', toggleLmsField);
@@ -2777,6 +3056,9 @@ function wireEvents(){
   $('cc-q').addEventListener('input',renderCat);
   $('btn-add-crs').addEventListener('click',()=>openCM(null));
   $('cat-tb').addEventListener('click',e=>{
+    const a=e.target.closest('a.clink');
+    // Let ctrl/cmd/middle-click open a real new tab — the href is a working URL.
+    if(a&&!(e.metaKey||e.ctrlKey||e.shiftKey||e.button)){e.preventDefault();openCourse(a.dataset.course);return;}
     const d=e.target.closest('.dot');if(d)toggleOff(d.dataset.cid,d.dataset.pfx,d.dataset.term);
     const b=e.target.closest('.ec');if(b)openCM(b.dataset.id);
   });
@@ -4341,7 +4623,10 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }else{
     setAccessStatus();
   }
-  handleOfferingDeepLink();   // ?offering=<uuid> arriving from a faculty profile
+  // ?course=<code> wins over ?offering=<uuid>: both want to own the page, and a
+  // course link is the more specific request.
+  if(!handleCourseDeepLink())
+    handleOfferingDeepLink();   // ?offering=<uuid> arriving from a faculty profile
 });
 
 /* ─── TOOLTIP for notes ──── */
