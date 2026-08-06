@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPH theme preview &mdash; light / dark</title>
+<style>
+:root {
+  color-scheme:light;
+  --navy:#1F3864; --navyhv:#2d4a7a; --teal:#2E75B6; --ltblue:#D6E4F0;
+  --lgray:#F4F6F9; --mgray:#CBD5E1; --dgray:#475569; --text:#1E293B;
+  --red:#DC2626; --ltred:#FEE2E2; --ltgrn:#DCFCE7; --ltgold:#FEF3C7;
+  /* surfaces */
+  --surface:#FFFFFF;      /* cards, nav, toolbar, modals, inputs */
+  --surface-2:#F8FAFC;    /* recessed strips, zebra rows */
+  --navytx:#1F3864;       /* navy used as text — see note above */
+  --rowline:#EFF3F8;      /* table + list separators */
+  --rowhover:#F0F6FF;     /* table row hover */
+  --muted:#94A3B8;
+  --grp1:#334155; --grp2:#475569;   /* grouped-row banners */
+  --tipbg:#1E293B;                  /* tooltip */
+  /* pale fill / text pairs */
+  --ltgrn-2:#A7F3C8; --ltgold-2:#FDE9A9; --gold-bd:#E8B84B;
+  --ltorg:#FFEDD5; --ltpurp:#EDE9FE; --ltyel:#FEF9C3; --ltbluep:#DBEAFE;
+  --txgrn:#166534; --txgold:#92400E; --txgold-2:#7a5518; --txorg:#9A3412;
+  --txblue:#1E40AF; --txpurp:#5B21B6; --txyel:#854D0E;
+  --pillbg:#F1F5F9; --pilltx:#64748B; --warn:#B45309;
+}
+.pane.dark {
+  color-scheme:dark;   /* native scrollbars, <select> popups, date pickers */
+  --navy:#152036; --navyhv:#22335A; --teal:#6FB2E8; --ltblue:#22314C;
+  --lgray:#0E1626; --mgray:#3B4A63; --dgray:#9AABC2; --text:#DDE4EE;
+  --red:#F1867F; --ltred:#3B1D22; --ltgrn:#153322; --ltgold:#3A2D0B;
+  --surface:#18223A; --surface-2:#131B2E;
+  --navytx:#93BAE8;
+  --rowline:#27334D; --rowhover:#202D48;
+  --muted:#8FA0B8;
+  --grp1:#2A3854; --grp2:#212E48;
+  --tipbg:#0A1120;
+  --ltgrn-2:#1D4630; --ltgold-2:#4A3A0E; --gold-bd:#6B5620;
+  --ltorg:#3A2412; --ltpurp:#291F49; --ltyel:#39330E; --ltbluep:#16294D;
+  --txgrn:#7FD8A2; --txgold:#EAC77C; --txgold-2:#C0A263; --txorg:#F0A87A;
+  --txblue:#9CC2F0; --txpurp:#C3ADF5; --txyel:#E4CE72;
+  --pillbg:#232F47; --pilltx:#9AABC2; --warn:#E0A63E;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;background:#5b6472;padding:18px}
+.sheet{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:1500px;margin:0 auto}
+@media (max-width:1080px){.sheet{grid-template-columns:1fr}}
+.pane{background:var(--lgray);color:var(--text);border-radius:10px;overflow:hidden;
+  box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.pane-lbl{font:600 11px/1 'Segoe UI',system-ui,sans-serif;letter-spacing:.12em;
+  text-transform:uppercase;color:#fff;padding:0 0 7px 3px;opacity:.85}
+.swatches{display:flex;flex-wrap:wrap;gap:6px;padding:14px}
+.sw{width:60px}
+.sw i{display:block;height:30px;border-radius:4px;border:1px solid rgba(128,128,128,.45)}
+.sw span{display:block;font-size:9px;color:var(--dgray);margin-top:3px;word-break:break-all;line-height:1.25}
+.pane h1{font-size:16px;font-weight:600}
+nav button{padding:0 18px;height:44px;border:none;background:none;font-size:13px;color:var(--dgray);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-family:inherit}
+nav button.active{color:var(--navytx);border-bottom-color:var(--teal);font-weight:600}
+.tb-hint{font-size:11px;color:var(--dgray)}
+.btn-p{background:var(--teal);color:white}
+.btn-s{background:var(--surface);color:var(--dgray);border:1px solid var(--mgray)}
+.btn-d{background:var(--ltred);color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+thead th{background:var(--navy);color:white;padding:9px 10px;text-align:left;font-size:11px;font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:10;cursor:pointer;user-select:none}
+tbody tr{border-bottom:1px solid var(--rowline)}
+tbody tr:hover{background:var(--rowhover)}
+tbody tr.gt td{background:var(--grp1);color:white;font-weight:700;font-size:11px;padding:5px 10px}
+tbody tr.gp td{background:var(--grp2);color:white;font-size:11px;padding:4px 10px 4px 20px}
+td{padding:7px 10px;vertical-align:middle}
+.nores{text-align:center;padding:60px;color:var(--dgray)}
+.b-su{background:var(--ltgold);color:var(--txgold)}
+.b-fa{background:var(--ltorg);color:var(--txorg)}
+.b-wi{background:var(--ltbluep);color:var(--txblue)}
+.b-sp{background:var(--ltgrn);color:var(--txgrn)}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;background:var(--pillbg);color:var(--pilltx)}
+.p-ip{background:var(--ltgrn);color:var(--txgrn)}
+.p-oa{background:var(--ltbluep);color:var(--txblue)}
+.p-os{background:var(--ltpurp);color:var(--txpurp)}
+.p-hy{background:var(--ltyel);color:var(--txyel)}
+.modal{background:var(--surface);border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:min(680px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.mhd{padding:16px 20px;border-bottom:1px solid var(--mgray);display:flex;align-items:center;justify-content:space-between;background:var(--navy);color:white;flex-shrink:0}
+.mhd h3{font-size:15px;font-weight:600}
+.mb{padding:20px;overflow-y:auto;flex:1}
+.mft{padding:12px 20px;border-top:1px solid var(--mgray);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;flex-wrap:wrap}
+tbody tr.incomplete td{background:var(--ltgold)}
+.flag-warn{color:var(--warn);font-size:12px;cursor:help}
+.flag-off{color:var(--red);font-size:11px;cursor:help}
+#enr-banner{background:var(--ltgold);border-bottom:1px solid var(--gold-bd);color:var(--txgold);padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.tooltip {
+  position: absolute; z-index: 500;
+  background: var(--tipbg); color: #F1F5F9;
+  font-size: 11px; line-height: 1.5;
+  padding: 6px 10px; border-radius: 5px;
+  max-width: 300px; white-space: pre-wrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+.cfact{background:var(--lgray);border:1px solid var(--rowline);border-radius:6px;padding:6px 12px;font-size:13px;min-width:96px}
+.cfact b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--dgray);font-weight:700;margin-bottom:2px}
+.ccard{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:16px 20px;margin-bottom:14px}
+.ccard h3{font-size:12px;color:var(--navytx);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;font-weight:700}
+.tdb-card{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:18px 20px}
+.tdb-card h3{font-size:14px;color:var(--navytx);margin-bottom:4px}
+.tdb-chip{display:flex;align-items:center;gap:8px;border:1px solid var(--mgray);border-radius:6px;padding:6px 8px 6px 10px;background:var(--lgray);font-size:12px}
+.tdb-chip .badge{font-weight:700;font-size:10.5px;color:white;background:var(--teal);border-radius:4px;padding:2px 6px}
+.tdb-chip .meta{color:var(--dgray);font-size:11px}
+.tdb-stat{flex:1 1 150px;background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:12px 14px}
+.tdb-stat .n{font-size:20px;font-weight:700;color:var(--navytx)}
+.tdb-stat .l{font-size:11px;color:var(--dgray);margin-top:2px}
+.tdb-anom{border:1px solid var(--gold-bd);background:var(--ltgold);color:var(--txgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px;display:flex;gap:10px;align-items:flex-start}
+.tdb-anom b{font-family:monospace}
+.tdb-anom .why{display:block;color:var(--txgold-2);margin-top:2px}
+.tdb-diff-chip{display:inline-block;font-size:10.5px;font-weight:600;border-radius:4px;padding:2px 6px;margin:1px 3px 1px 0}
+.tdb-diff-same{background:var(--ltgrn);color:var(--txgrn)}
+.tdb-diff-changed{background:var(--ltgold);color:var(--txgold)}
+.tdb-diff-new{background:var(--ltblue);color:var(--navytx)}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div><div class="pane-lbl">Light</div><div class="pane light">
+<header style="height:auto;padding:10px 16px">
+  <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026&ndash;27</div></div>
+  <div class="hsp"></div><span style="font-size:12px;color:var(--muted)">Ready</span>
+</header>
+<nav><button class="active">Schedule</button><button>On-Campus</button><button>Catalog</button></nav>
+<div class="toolbar">
+  <input placeholder="Search courses"><select><option>All terms</option></select>
+  <button class="btn btn-p">Add offering</button>
+  <button class="btn btn-s">Export</button>
+  <button class="btn btn-d">Delete</button>
+</div>
+<div id="enr-banner">Enrollment figures are from the 09-Jan pull. <button>&times;</button></div>
+<table>
+  <thead><tr><th>Course</th><th>Term</th><th>Modality</th><th>Instructor</th><th>Cap</th></tr></thead>
+  <tbody>
+    <tr class="gt"><td colspan="5">PUBLIC HEALTH PRACTICE</td></tr>
+    <tr class="gp"><td colspan="5">PHE &mdash; 500 level</td></tr>
+    <tr><td><span class="secpill">001</span> PHE 512: Program Evaluation</td>
+        <td><span class="badge b-fa">Fall</span></td>
+        <td><span class="pill p-ip">In-Person</span></td><td>Rivera, A.</td><td>35</td></tr>
+    <tr><td>PHE 524: Health Policy</td><td><span class="badge b-wi">Winter</span></td>
+        <td><span class="pill p-oa">Online async</span></td><td>Okonkwo, D.</td><td>60</td></tr>
+    <tr class="incomplete"><td>PHE 531: Epidemiology II <span class="flag-warn">&#9888;</span></td>
+        <td><span class="badge b-sp">Spring</span></td>
+        <td><span class="pill p-hy">Hybrid</span></td><td><span class="flag-off">no instructor</span></td><td>&mdash;</td></tr>
+    <tr><td>PHE 540: Global Health</td><td><span class="badge b-su">Summer</span></td>
+        <td><span class="pill p-os">Online sync</span></td><td>Bayer, K.</td><td>24</td></tr>
+  </tbody>
+</table>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+  <div class="tdb-card"><h3>Term draft &mdash; Fall 2026</h3>
+    <div class="tdb-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <div class="tdb-stat"><div class="n">148</div><div class="l">CRNs parsed</div></div>
+      <div class="tdb-stat warn"><div class="n">3</div><div class="l">Needs review</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <span class="tdb-diff-chip tdb-diff-same">time same</span>
+      <span class="tdb-diff-chip tdb-diff-changed">cap 30&rarr;35</span>
+      <span class="tdb-diff-chip tdb-diff-new">new section</span>
+    </div>
+    <div class="tdb-anom" style="margin-top:12px"><div>&#9888;</div>
+      <div><b>XL-4471</b> appears in HSMP but not in PHE.
+        <span class="why">One-sided crosslist &mdash; dismiss only if intentional.</span></div></div>
+  </div>
+  <div class="ccard"><h3>Course description</h3>
+    <div class="cfacts" style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="cfact"><b>Credits</b>4</div>
+      <div class="cfact"><b>Prefix</b>PHE</div>
+      <div class="cfact"><b>Level</b>Graduate</div>
+    </div>
+  </div>
+  <div class="modal" style="max-height:none">
+    <div class="mhd"><h3>Edit offering</h3></div>
+    <div class="mb" style="overflow:visible"><label style="font-size:11px;color:var(--dgray)">TOTAL CAP</label>
+      <input value="35" style="width:100%;margin-top:4px"></div>
+    <div class="mft"><button class="btn btn-s">Cancel</button><button class="btn btn-p">Save</button></div>
+  </div>
+  <div class="tooltip" style="position:static;display:inline-block">Admin note: cap raised after waitlist review.</div>
+</div><div class="swatches" id="sw-l"></div></div></div>
+  <div><div class="pane-lbl">Dark</div><div class="pane dark">
+<header style="height:auto;padding:10px 16px">
+  <div><h1>SPH Course Scheduling</h1><div class="sub">Academic Year 2026&ndash;27</div></div>
+  <div class="hsp"></div><span style="font-size:12px;color:var(--muted)">Ready</span>
+</header>
+<nav><button class="active">Schedule</button><button>On-Campus</button><button>Catalog</button></nav>
+<div class="toolbar">
+  <input placeholder="Search courses"><select><option>All terms</option></select>
+  <button class="btn btn-p">Add offering</button>
+  <button class="btn btn-s">Export</button>
+  <button class="btn btn-d">Delete</button>
+</div>
+<div id="enr-banner">Enrollment figures are from the 09-Jan pull. <button>&times;</button></div>
+<table>
+  <thead><tr><th>Course</th><th>Term</th><th>Modality</th><th>Instructor</th><th>Cap</th></tr></thead>
+  <tbody>
+    <tr class="gt"><td colspan="5">PUBLIC HEALTH PRACTICE</td></tr>
+    <tr class="gp"><td colspan="5">PHE &mdash; 500 level</td></tr>
+    <tr><td><span class="secpill">001</span> PHE 512: Program Evaluation</td>
+        <td><span class="badge b-fa">Fall</span></td>
+        <td><span class="pill p-ip">In-Person</span></td><td>Rivera, A.</td><td>35</td></tr>
+    <tr><td>PHE 524: Health Policy</td><td><span class="badge b-wi">Winter</span></td>
+        <td><span class="pill p-oa">Online async</span></td><td>Okonkwo, D.</td><td>60</td></tr>
+    <tr class="incomplete"><td>PHE 531: Epidemiology II <span class="flag-warn">&#9888;</span></td>
+        <td><span class="badge b-sp">Spring</span></td>
+        <td><span class="pill p-hy">Hybrid</span></td><td><span class="flag-off">no instructor</span></td><td>&mdash;</td></tr>
+    <tr><td>PHE 540: Global Health</td><td><span class="badge b-su">Summer</span></td>
+        <td><span class="pill p-os">Online sync</span></td><td>Bayer, K.</td><td>24</td></tr>
+  </tbody>
+</table>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+  <div class="tdb-card"><h3>Term draft &mdash; Fall 2026</h3>
+    <div class="tdb-stats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <div class="tdb-stat"><div class="n">148</div><div class="l">CRNs parsed</div></div>
+      <div class="tdb-stat warn"><div class="n">3</div><div class="l">Needs review</div></div>
+    </div>
+    <div style="margin-top:12px">
+      <span class="tdb-diff-chip tdb-diff-same">time same</span>
+      <span class="tdb-diff-chip tdb-diff-changed">cap 30&rarr;35</span>
+      <span class="tdb-diff-chip tdb-diff-new">new section</span>
+    </div>
+    <div class="tdb-anom" style="margin-top:12px"><div>&#9888;</div>
+      <div><b>XL-4471</b> appears in HSMP but not in PHE.
+        <span class="why">One-sided crosslist &mdash; dismiss only if intentional.</span></div></div>
+  </div>
+  <div class="ccard"><h3>Course description</h3>
+    <div class="cfacts" style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="cfact"><b>Credits</b>4</div>
+      <div class="cfact"><b>Prefix</b>PHE</div>
+      <div class="cfact"><b>Level</b>Graduate</div>
+    </div>
+  </div>
+  <div class="modal" style="max-height:none">
+    <div class="mhd"><h3>Edit offering</h3></div>
+    <div class="mb" style="overflow:visible"><label style="font-size:11px;color:var(--dgray)">TOTAL CAP</label>
+      <input value="35" style="width:100%;margin-top:4px"></div>
+    <div class="mft"><button class="btn btn-s">Cancel</button><button class="btn btn-p">Save</button></div>
+  </div>
+  <div class="tooltip" style="position:static;display:inline-block">Admin note: cap raised after waitlist review.</div>
+</div><div class="swatches" id="sw-d"></div></div></div>
+</div>
+<script>
+// Read the tokens back off the live computed styles, so the swatch strip
+// reflects what the browser actually resolved rather than a second copy.
+var NAMES=['--dgray', '--gold-bd', '--grp1', '--grp2', '--lgray', '--ltblue', '--ltbluep', '--ltgold', '--ltgold-2', '--ltgrn', '--ltgrn-2', '--ltorg', '--ltpurp', '--ltred', '--ltyel', '--mgray', '--muted', '--navy', '--navyhv', '--navytx', '--pillbg', '--pilltx', '--red', '--rowhover', '--rowline', '--surface', '--surface-2', '--teal', '--text', '--tipbg', '--txblue', '--txgold', '--txgold-2', '--txgrn', '--txorg', '--txpurp', '--txyel', '--warn'];
+['l','d'].forEach(function(k){
+  var host=document.getElementById('sw-'+k), src=host.closest('.pane');
+  var cs=getComputedStyle(src);
+  NAMES.forEach(function(n){
+    var v=cs.getPropertyValue(n).trim();
+    if(!v||v.indexOf('rgba')===0&&v.indexOf('0)')>-1) return;
+    var d=document.createElement('div'); d.className='sw';
+    d.innerHTML='<i style="background:'+v+'"></i><span>'+n.slice(2)+'<br>'+v+'</span>';
+    host.appendChild(d);
+  });
+});
+</script>
+</body>
+</html>

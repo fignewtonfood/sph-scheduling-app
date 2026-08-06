@@ -4,15 +4,66 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SPH Course Scheduling — AY 2026-27</title>
+<!-- Theme: applied before first paint so there is no white flash on load.
+     Explicit choice wins; otherwise follow the OS setting. -->
+<script>
+(function(){var t=null;try{t=localStorage.getItem('sph-theme');}catch(e){}
+ if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light';}
+ document.documentElement.setAttribute('data-theme',t);})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-/* ═══ TOKENS ═════════════════════════════════════════════════ */
+/* ═══ TOKENS ═════════════════════════════════════════════════
+   Every colour in the app resolves through one of these. The dark set below
+   redefines the same names, so a theme switch is a single attribute flip on
+   <html> — no per-rule overrides except where a hardcoded pairing (light chip
+   background + dark chip text) has to invert together.
+
+   Two naming notes, because they are easy to trip over:
+   · --navy is a BACKGROUND (header, table head). --navytx is the same colour
+     used as TEXT. They are identical in light mode and diverge in dark, where
+     the background must go darker and the text must go lighter.
+   · --lt* are pale fills; --tx* are the dark text colours that sit on them.
+     They always flip as a pair. */
 :root {
-  --navy:#1F3864; --teal:#2E75B6; --ltblue:#D6E4F0;
+  color-scheme:light;
+  --navy:#1F3864; --navyhv:#2d4a7a; --teal:#2E75B6; --ltblue:#D6E4F0;
   --lgray:#F4F6F9; --mgray:#CBD5E1; --dgray:#475569; --text:#1E293B;
   --red:#DC2626; --ltred:#FEE2E2; --ltgrn:#DCFCE7; --ltgold:#FEF3C7;
+  /* surfaces */
+  --surface:#FFFFFF;      /* cards, nav, toolbar, modals, inputs */
+  --surface-2:#F8FAFC;    /* recessed strips, zebra rows */
+  --navytx:#1F3864;       /* navy used as text — see note above */
+  --rowline:#EFF3F8;      /* table + list separators */
+  --rowhover:#F0F6FF;     /* table row hover */
+  --muted:#94A3B8;
+  --grp1:#334155; --grp2:#475569;   /* grouped-row banners */
+  --tipbg:#1E293B;                  /* tooltip */
+  /* pale fill / text pairs */
+  --ltgrn-2:#A7F3C8; --ltgold-2:#FDE9A9; --gold-bd:#E8B84B;
+  --ltorg:#FFEDD5; --ltpurp:#EDE9FE; --ltyel:#FEF9C3; --ltbluep:#DBEAFE;
+  --txgrn:#166534; --txgold:#92400E; --txgold-2:#7a5518; --txorg:#9A3412;
+  --txblue:#1E40AF; --txpurp:#5B21B6; --txyel:#854D0E;
+  --pillbg:#F1F5F9; --pilltx:#64748B; --warn:#B45309;
+}
+html[data-theme="dark"] {
+  color-scheme:dark;   /* native scrollbars, <select> popups, date pickers */
+  --navy:#152036; --navyhv:#22335A; --teal:#6FB2E8; --ltblue:#22314C;
+  --lgray:#0E1626; --mgray:#3B4A63; --dgray:#9AABC2; --text:#DDE4EE;
+  --red:#F1867F; --ltred:#3B1D22; --ltgrn:#153322; --ltgold:#3A2D0B;
+  --surface:#18223A; --surface-2:#131B2E;
+  --navytx:#93BAE8;
+  --rowline:#27334D; --rowhover:#202D48;
+  --muted:#8FA0B8;
+  --grp1:#2A3854; --grp2:#212E48;
+  --tipbg:#0A1120;
+  --ltgrn-2:#1D4630; --ltgold-2:#4A3A0E; --gold-bd:#6B5620;
+  --ltorg:#3A2412; --ltpurp:#291F49; --ltyel:#39330E; --ltbluep:#16294D;
+  --txgrn:#7FD8A2; --txgold:#EAC77C; --txgold-2:#C0A263; --txorg:#F0A87A;
+  --txblue:#9CC2F0; --txpurp:#C3ADF5; --txyel:#E4CE72;
+  --pillbg:#232F47; --pilltx:#9AABC2; --warn:#E0A63E;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--lgray);color:var(--text);font-size:14px}
@@ -23,7 +74,7 @@ header{background:var(--navy);color:white;padding:0 20px;height:52px;display:fle
 /* The header select shows white text (correct against navy), but its dropdown
    popup renders on the OS's white background — so the options must be dark, or
    they vanish. Inline styles can't reach <option>, hence this rule. */
-#ay-sel option{color:var(--text);background:white}
+#ay-sel option{color:var(--text);background:var(--surface)}
 header h1{font-size:16px;font-weight:600}
 header .sub{font-size:11px;color:#94A3B8;margin-top:1px}
 .hsp{flex:1}
@@ -32,12 +83,12 @@ header .sub{font-size:11px;color:#94A3B8;margin-top:1px}
 #save-status{font-size:12px;color:#94A3B8}
 
 /* ═══ NAV ════════════════════════════════════════════════════ */
-nav{background:white;border-bottom:1px solid var(--mgray);display:flex;flex-shrink:0;overflow-x:auto}
+nav{background:var(--surface);border-bottom:1px solid var(--mgray);display:flex;flex-shrink:0;overflow-x:auto}
 nav button{padding:0 18px;height:44px;border:none;background:none;font-size:13px;color:var(--dgray);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-family:inherit}
 nav button:hover{color:var(--teal);background:var(--lgray)}
-nav button.active{color:var(--navy);border-bottom-color:var(--teal);font-weight:600}
-#btn-admin-toggle{margin-left:auto;font-size:11px;color:#64748B;padding:0 14px}
-#btn-lists{font-size:11px;color:#64748B;padding:0 14px}
+nav button.active{color:var(--navytx);border-bottom-color:var(--teal);font-weight:600}
+#btn-admin-toggle{margin-left:auto;font-size:11px;color:var(--dgray);padding:0 14px}
+#btn-lists{font-size:11px;color:var(--dgray);padding:0 14px}
 
 /* ═══ VIEWS ══════════════════════════════════════════════════ */
 main{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -45,13 +96,13 @@ main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .view.active{display:flex}
 
 /* ═══ TOOLBAR ════════════════════════════════════════════════ */
-.toolbar{background:white;border-bottom:1px solid var(--mgray);padding:10px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
+.toolbar{background:var(--surface);border-bottom:1px solid var(--mgray);padding:10px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
 .tb-sep{width:1px;height:24px;background:var(--mgray);margin:0 4px}
 .tb-sp{flex:1}
 .tb-hint{font-size:11px;color:var(--dgray)}
 
 /* ═══ CONTROLS ═══════════════════════════════════════════════ */
-input,select,textarea{font-size:13px;border:1px solid var(--mgray);border-radius:6px;padding:5px 10px;color:var(--text);background:white;outline:none;font-family:inherit}
+input,select,textarea{font-size:13px;border:1px solid var(--mgray);border-radius:6px;padding:5px 10px;color:var(--text);background:var(--surface);outline:none;font-family:inherit}
 input:focus,select:focus,textarea:focus{border-color:var(--teal)}
 select{cursor:pointer}
 
@@ -60,7 +111,7 @@ select{cursor:pointer}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .btn-p{background:var(--teal);color:white}
 .btn-p:hover:not(:disabled){background:var(--navy)}
-.btn-s{background:white;color:var(--dgray);border:1px solid var(--mgray)}
+.btn-s{background:var(--surface);color:var(--dgray);border:1px solid var(--mgray)}
 .btn-s:hover:not(:disabled){background:var(--lgray)}
 .btn-d{background:var(--ltred);color:var(--red)}
 .btn-d:hover:not(:disabled){background:var(--red);color:white}
@@ -70,27 +121,27 @@ select{cursor:pointer}
 .table-wrap{flex:1;overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 thead th{background:var(--navy);color:white;padding:9px 10px;text-align:left;font-size:11px;font-weight:600;white-space:nowrap;position:sticky;top:0;z-index:10;cursor:pointer;user-select:none}
-thead th:hover{background:#2d4a7a}
+thead th:hover{background:var(--navyhv)}
 thead th.sa::after{content:' ↑'}thead th.sd::after{content:' ↓'}
-tbody tr{border-bottom:1px solid #EFF3F8}
-tbody tr:hover{background:#F0F6FF}
-tbody tr.gt td{background:#334155;color:white;font-weight:700;font-size:11px;padding:5px 10px}
-tbody tr.gp td{background:#475569;color:white;font-size:11px;padding:4px 10px 4px 20px}
+tbody tr{border-bottom:1px solid var(--rowline)}
+tbody tr:hover{background:var(--rowhover)}
+tbody tr.gt td{background:var(--grp1);color:white;font-weight:700;font-size:11px;padding:5px 10px}
+tbody tr.gp td{background:var(--grp2);color:white;font-size:11px;padding:4px 10px 4px 20px}
 td{padding:7px 10px;vertical-align:middle}
 .nores{text-align:center;padding:60px;color:var(--dgray)}
 
 /* ═══ BADGES / PILLS ═════════════════════════════════════════ */
 .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap}
-.b-su{background:#FEF3C7;color:#92400E}.b-fa{background:#FFEDD5;color:#9A3412}
-.b-wi{background:#DBEAFE;color:#1E40AF}.b-sp{background:#DCFCE7;color:#166534}
-.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;background:#F1F5F9;color:#64748B}
-.p-ip{background:#DCFCE7;color:#166534}.p-oa{background:#DBEAFE;color:#1E40AF}
-.p-os{background:#EDE9FE;color:#5B21B6}.p-hy{background:#FEF9C3;color:#854D0E}
+.b-su{background:var(--ltgold);color:var(--txgold)}.b-fa{background:var(--ltorg);color:var(--txorg)}
+.b-wi{background:var(--ltbluep);color:var(--txblue)}.b-sp{background:var(--ltgrn);color:var(--txgrn)}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;background:var(--pillbg);color:var(--pilltx)}
+.p-ip{background:var(--ltgrn);color:var(--txgrn)}.p-oa{background:var(--ltbluep);color:var(--txblue)}
+.p-os{background:var(--ltpurp);color:var(--txpurp)}.p-hy{background:var(--ltyel);color:var(--txyel)}
 
 /* ═══ MODALS ════════════════════════════════════════════════ */
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
 .mo.open{display:flex}
-.modal{background:white;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:min(680px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.modal{background:var(--surface);border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:min(680px,95vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
 .modal.sm{width:min(420px,95vw)}.modal.med{width:min(500px,95vw)}
 .mhd{padding:16px 20px;border-bottom:1px solid var(--mgray);display:flex;align-items:center;justify-content:space-between;background:var(--navy);color:white;flex-shrink:0}
 .mhd h3{font-size:15px;font-weight:600}
@@ -119,7 +170,7 @@ td{padding:7px 10px;vertical-align:middle}
 #ghb input{width:100%}
 .gh-hint{font-size:11px;color:var(--dgray);line-height:1.5}
 .ghs{font-size:12px;padding:8px 12px;border-radius:6px;display:none}
-.ghs.ok{background:var(--ltgrn);color:#166534;display:block}
+.ghs.ok{background:var(--ltgrn);color:var(--txgrn);display:block}
 .ghs.err{background:var(--ltred);color:var(--red);display:block}
 
 /* ═══ MISC ═══════════════════════════════════════════════════ */
@@ -135,17 +186,17 @@ td{padding:7px 10px;vertical-align:middle}
    carries a tooltip (admin notes, or the description for signed-out visitors)
    the cursor must read as "clickable", not "explain", so this wins over
    .has-notes on specificity rather than by ordering. */
-.secpill{display:inline-block;background:var(--lgray);border:1px solid var(--mgray);border-radius:4px;padding:0 6px;font-size:11px;font-weight:700;color:var(--navy)}
+.secpill{display:inline-block;background:var(--lgray);border:1px solid var(--mgray);border-radius:4px;padding:0 6px;font-size:11px;font-weight:700;color:var(--navytx)}
 tr.sec-row td:first-child{padding-left:22px;color:var(--dgray);font-weight:400}
-.csec{display:inline-block;background:var(--lgray);border-radius:4px;padding:0 5px;font-size:11px;color:var(--navy);margin-right:4px}
+.csec{display:inline-block;background:var(--lgray);border-radius:4px;padding:0 5px;font-size:11px;color:var(--navytx);margin-right:4px}
 a.clink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray);cursor:pointer}
 a.clink:hover{color:var(--teal);border-bottom-color:var(--teal)}
 a.clink.has-notes{cursor:pointer;border-bottom-color:var(--teal)}
-tbody tr.incomplete td{background:#FEF3C7}
-tbody tr.incomplete:hover td{background:#FDE9A9}
-tbody tr.no-off td{color:#94A3B8}
-tbody tr.no-off td strong{color:#94A3B8;font-weight:600}
-.flag-warn{color:#B45309;font-size:12px;cursor:help}
+tbody tr.incomplete td{background:var(--ltgold)}
+tbody tr.incomplete:hover td{background:var(--ltgold-2)}
+tbody tr.no-off td{color:var(--muted)}
+tbody tr.no-off td strong{color:var(--muted);font-weight:600}
+.flag-warn{color:var(--warn);font-size:12px;cursor:help}
 /* ── SIGNED-OUT GATING ──────────────────────────────────────────
    The app previously knew only two states (admin / read-only). Anonymous
    visitors are a THIRD state: they get a reduced schedule, no export, no
@@ -160,15 +211,15 @@ a.ilink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--mgray)
 a.ilink:hover{color:var(--teal);border-bottom-color:var(--teal)}
 /* Deep-link target (index.html?offering=<uuid>): flash, then settle into a
    persistent left rule so the row stays findable after the animation ends. */
-tbody tr.deeplink td{background:#DCFCE7;animation:dlflash 1.4s ease-out 2}
+tbody tr.deeplink td{background:var(--ltgrn);animation:dlflash 1.4s ease-out 2}
 tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
-@keyframes dlflash{0%,100%{background:#DCFCE7}50%{background:#A7F3C8}}
-.flag-off{color:#DC2626;font-size:11px;cursor:help}
-#enr-banner{background:var(--ltgold);border-bottom:1px solid #F0C674;color:#92400E;padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px;flex-shrink:0}
-#enr-banner button{margin-left:auto;background:none;border:none;color:#92400E;font-size:16px;cursor:pointer;line-height:1;padding:0 4px}
+@keyframes dlflash{0%,100%{background:var(--ltgrn)}50%{background:var(--ltgrn-2)}}
+.flag-off{color:var(--red);font-size:11px;cursor:help}
+#enr-banner{background:var(--ltgold);border-bottom:1px solid var(--gold-bd);color:var(--txgold);padding:8px 16px;font-size:13px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+#enr-banner button{margin-left:auto;background:none;border:none;color:var(--txgold);font-size:16px;cursor:pointer;line-height:1;padding:0 4px}
 .tooltip {
   position: absolute; z-index: 500;
-  background: #1E293B; color: white;
+  background: var(--tipbg); color: #F1F5F9;
   font-size: 11px; line-height: 1.5;
   padding: 6px 10px; border-radius: 5px;
   max-width: 300px; white-space: pre-wrap;
@@ -183,28 +234,28 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .crs-wrap{max-width:900px;margin:0 auto}
 .cback{background:none;border:none;color:var(--teal);font-size:13px;cursor:pointer;padding:4px 0;margin-bottom:12px;font-family:inherit}
 .cback:hover{text-decoration:underline}
-.chead{background:white;border:1px solid var(--mgray);border-radius:8px;padding:18px 20px;margin-bottom:14px}
-.chead h2{font-size:20px;color:var(--navy);font-weight:600;line-height:1.35}
+.chead{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:18px 20px;margin-bottom:14px}
+.chead h2{font-size:20px;color:var(--navytx);font-weight:600;line-height:1.35}
 .chead .csub{font-size:12px;color:var(--dgray);margin-top:5px;letter-spacing:.3px}
 .cfacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-.cfact{background:var(--lgray);border:1px solid #E6ECF4;border-radius:6px;padding:6px 12px;font-size:13px;min-width:96px}
+.cfact{background:var(--lgray);border:1px solid var(--rowline);border-radius:6px;padding:6px 12px;font-size:13px;min-width:96px}
 .cfact b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--dgray);font-weight:700;margin-bottom:2px}
-.ccard{background:white;border:1px solid var(--mgray);border-radius:8px;padding:16px 20px;margin-bottom:14px}
-.ccard h3{font-size:12px;color:var(--navy);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;font-weight:700}
+.ccard{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:16px 20px;margin-bottom:14px}
+.ccard h3{font-size:12px;color:var(--navytx);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;font-weight:700}
 .cdesc{font-size:14px;line-height:1.65;white-space:pre-wrap}
 .cgate{font-size:13px;color:var(--dgray);font-style:italic}
 .clinks{display:flex;flex-wrap:wrap;gap:10px}
 .clinks a{font-size:12.5px;color:var(--teal);text-decoration:none;border:1px solid var(--mgray);border-radius:6px;padding:7px 13px}
 .clinks a:hover{background:var(--lgray);border-color:var(--teal)}
 .cayg{border:1px solid var(--mgray);border-radius:6px;margin-bottom:8px;overflow:hidden}
-.cayg>summary{cursor:pointer;padding:9px 12px;background:var(--lgray);font-size:12.5px;font-weight:600;color:var(--navy);list-style:none;display:flex;align-items:center;gap:8px}
+.cayg>summary{cursor:pointer;padding:9px 12px;background:var(--lgray);font-size:12.5px;font-weight:600;color:var(--navytx);list-style:none;display:flex;align-items:center;gap:8px}
 .cayg>summary::-webkit-details-marker{display:none}
 .cayg>summary::before{content:'▸';color:var(--teal);font-size:11px}
 .cayg[open]>summary::before{content:'▾'}
 .cayn{font-weight:400;color:var(--dgray);font-size:11px}
 .ctgrp{padding:2px 12px 10px}
 .cth{font-size:11px;font-weight:700;color:var(--dgray);text-transform:uppercase;letter-spacing:.5px;padding:9px 0 2px}
-.corow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid #EFF3F8;font-size:12.5px}
+.corow{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid var(--rowline);font-size:12.5px}
 .corow .cmeta{color:var(--dgray);font-size:11.5px;text-align:right;white-space:nowrap}
 /* On-Campus frozen header + time ruler. `top` on .g-times is set from the
    header's measured height after each render — the header's height depends on
@@ -216,8 +267,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .pot-row { display: none; }
 
 /* Load screen */
-#ls{position:fixed;inset:0;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9000}
-#ls h2{font-size:18px;color:var(--navy)}
+#ls{position:fixed;inset:0;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:9000}
+#ls h2{font-size:18px;color:var(--navytx)}
 #ls p{font-size:13px;color:var(--dgray)}
 .spin{width:36px;height:36px;border:3px solid var(--ltblue);border-top-color:var(--teal);border-radius:50%;animation:sp .8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -227,8 +278,8 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .tdb-lbl select{font-size:13px;font-weight:400;color:var(--text)}
 .tdb-scroll{flex:1;overflow:auto;background:var(--lgray)}
 .tdb-wrap{max-width:1180px;margin:0 auto;padding:20px 20px 60px;display:flex;flex-direction:column;gap:18px}
-.tdb-card{background:white;border:1px solid var(--mgray);border-radius:8px;padding:18px 20px}
-.tdb-card h3{font-size:14px;color:var(--navy);margin-bottom:4px}
+.tdb-card{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:18px 20px}
+.tdb-card h3{font-size:14px;color:var(--navytx);margin-bottom:4px}
 .tdb-sub{font-size:12px;color:var(--dgray);margin-bottom:14px;max-width:760px}
 
 .tdb-drop{border:1.5px dashed var(--mgray);border-radius:8px;padding:24px;text-align:center;color:var(--dgray);cursor:pointer}
@@ -245,55 +296,55 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .tdb-chip button:hover{color:var(--red)}
 
 .tdb-prefixes{display:flex;flex-wrap:wrap;gap:8px}
-.tdb-ptoggle{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--mgray);border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;background:white}
+.tdb-ptoggle{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--mgray);border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;background:var(--surface)}
 .tdb-ptoggle.on{border-color:var(--teal);background:var(--ltblue);font-weight:600}
 .tdb-ptoggle .ct{color:var(--dgray);font-weight:400}
 
 .tdb-stats{display:flex;gap:12px;flex-wrap:wrap}
-.tdb-stat{flex:1 1 150px;background:white;border:1px solid var(--mgray);border-radius:8px;padding:12px 14px}
-.tdb-stat .n{font-size:20px;font-weight:700;color:var(--navy)}
+.tdb-stat{flex:1 1 150px;background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:12px 14px}
+.tdb-stat .n{font-size:20px;font-weight:700;color:var(--navytx)}
 .tdb-stat .l{font-size:11px;color:var(--dgray);margin-top:2px}
-.tdb-stat.warn .n{color:#92400E}
+.tdb-stat.warn .n{color:var(--warn)}
 
-.tdb-anom{border:1px solid #E8B84B;background:var(--ltgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px;display:flex;gap:10px;align-items:flex-start}
+.tdb-anom{border:1px solid var(--gold-bd);background:var(--ltgold);color:var(--txgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px;display:flex;gap:10px;align-items:flex-start}
 .tdb-anom:last-child{margin-bottom:0}
 .tdb-anom b{font-family:monospace}
-.tdb-anom .why{display:block;color:#7a5518;margin-top:2px}
+.tdb-anom .why{display:block;color:var(--txgold-2);margin-top:2px}
 .tdb-restore{margin-top:10px;padding-top:10px;border-top:1px solid var(--mgray);font-size:11.5px;color:var(--dgray);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 .tdb-pair-wrap{max-height:640px;overflow:auto}
 #tdb-pair-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
 #tdb-pair-tbl thead th{position:sticky;top:0;background:var(--lgray);border-bottom:1px solid var(--mgray);text-align:left;padding:8px 10px;font-size:11px;color:var(--dgray);z-index:2}
-#tdb-pair-tbl tbody td{padding:8px 10px;border-bottom:1px solid #EEF1F3;vertical-align:top}
-#tdb-pair-tbl tbody tr:nth-child(even){background:#FBFCFD}
-.tdb-refblock .xl{font-family:monospace;font-weight:700;color:var(--navy)}
+#tdb-pair-tbl tbody td{padding:8px 10px;border-bottom:1px solid var(--rowline);vertical-align:top}
+#tdb-pair-tbl tbody tr:nth-child(even){background:var(--surface-2)}
+.tdb-refblock .xl{font-family:monospace;font-weight:700;color:var(--navytx)}
 .tdb-refblock .row{font-size:12px;margin-top:2px}
 .tdb-refblock .row .cls{font-family:monospace}
 .tdb-refblock .gcl{margin-top:4px;font-size:11px;color:var(--dgray)}
 .tdb-match-sel{width:100%;font-size:12px}
 .tdb-diff-chip{display:inline-block;font-size:10.5px;font-weight:600;border-radius:4px;padding:2px 6px;margin:1px 3px 1px 0}
-.tdb-diff-same{background:var(--ltgrn);color:#166534}
-.tdb-diff-changed{background:var(--ltgold);color:#92400E}
-.tdb-diff-new{background:var(--ltblue);color:var(--navy)}
+.tdb-diff-same{background:var(--ltgrn);color:var(--txgrn)}
+.tdb-diff-changed{background:var(--ltgold);color:var(--txgold)}
+.tdb-diff-new{background:var(--ltblue);color:var(--navytx)}
 .tdb-status{font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;display:inline-block}
 .tdb-status.pending{background:var(--lgray);color:var(--dgray)}
-.tdb-status.confirmed{background:var(--ltgrn);color:#166534}
-.tdb-status.add{background:var(--ltblue);color:var(--navy)}
+.tdb-status.confirmed{background:var(--ltgrn);color:var(--txgrn)}
+.tdb-status.add{background:var(--ltblue);color:var(--navytx)}
 .tdb-status.delete{background:var(--ltred);color:var(--red)}
 .tdb-unmatched-item{display:flex;justify-content:space-between;border:1px solid var(--mgray);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12.5px}
 .tdb-chip button:disabled,.tdb-ptoggle input:disabled{opacity:.35;cursor:not-allowed}
 .tdb-match-sel:disabled{background:var(--lgray);color:var(--dgray);cursor:not-allowed}
 .tdb-sum-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.tdb-sum-review{border:1px solid #E8B84B;background:var(--ltgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px}
+.tdb-sum-review{border:1px solid var(--gold-bd);background:var(--ltgold);color:var(--txgold);border-radius:6px;padding:9px 12px;margin-bottom:7px;font-size:12px}
 .tdb-sum-review b{font-family:monospace}
 .tdb-ref-row{font-size:12px;line-height:1.45;padding:1px 0}
 .tdb-ref-row .meta{color:var(--dgray);font-size:11px;margin-left:6px}
-.tdb-ref-row .meta.warn{display:block;margin-left:0;color:#92400E}
-.tdb-code{font-family:monospace;font-weight:700;color:var(--navy);font-size:12px}
+.tdb-ref-row .meta.warn{display:block;margin-left:0;color:var(--txgold)}
+.tdb-code{font-family:monospace;font-weight:700;color:var(--navytx);font-size:12px}
 .tdb-pick{width:100%;font-size:12px}
 .tdb-pick:disabled{background:var(--lgray);color:var(--dgray);cursor:not-allowed}
 .tdb-pill{font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;display:inline-block;white-space:nowrap}
-.tdb-pill-ok{background:var(--ltgrn);color:#166534}
+.tdb-pill-ok{background:var(--ltgrn);color:var(--txgrn)}
 .tdb-pill-del{background:var(--ltred);color:var(--red)}
 .tdb-pill-pend{background:var(--lgray);color:var(--dgray)}
 .tdb-unmatched-row{border:1px solid var(--mgray);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12.5px}
@@ -301,7 +352,26 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 .tdb-unmatched-row label{display:flex;align-items:center;gap:8px;cursor:pointer}
 .tdb-unmatched-row .meta{color:var(--dgray);font-size:11px}
 .tdb-locked-note{border:1px solid var(--teal);background:var(--ltblue);border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
-.tdb-sum-review .why{display:block;color:#7a5518;margin-top:2px}
+.tdb-sum-review .why{display:block;color:var(--txgold-2);margin-top:2px}
+
+/* ═══ DARK MODE COMPENSATION ═════════════════════════════════
+   Only rules where a token flip alone is not enough: filled controls whose
+   label was hardcoded `white` need dark text once the fill goes light. */
+html[data-theme="dark"] .btn-p{color:#0E1626;font-weight:600}
+html[data-theme="dark"] .btn-p:hover:not(:disabled){background:#9BCBF2;color:#0E1626}
+html[data-theme="dark"] .btn-d:hover:not(:disabled){color:#2A0E0E}
+html[data-theme="dark"] .tdb-chip .badge{color:#0E1626}
+html[data-theme="dark"] .dot.off{color:#4E5F7D}
+html[data-theme="dark"] .mo{background:rgba(0,0,0,.65)}
+html[data-theme="dark"] .modal{box-shadow:0 20px 60px rgba(0,0,0,.6)}
+html[data-theme="dark"] #last-saved{color:var(--muted)}
+/* The magic-link email field is mounted inside the navy header by
+   buildAuthBar(); its inline background is overridden here rather than in JS. */
+html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(--text)!important}
+/* Theme toggle, header-mounted in both apps. */
+#btn-theme{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);color:white;
+  border-radius:4px;cursor:pointer;font-size:13px;line-height:1;padding:5px 9px;font-family:inherit}
+#btn-theme:hover{background:rgba(255,255,255,.2)}
 </style>
 </head>
 <body>
@@ -317,6 +387,7 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
     <span id="auth-slot" style="display:inline-flex;align-items:center;gap:8px;margin-right:6px"></span>
     <span id="admin-badge">ADMIN</span>
     <button id="btn-sync" class="btn btn-s" style="font-size:11px;padding:4px 10px;color:white;border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.1)" title="Reload latest data from the database">↺ Sync</button>
+    <button id="btn-theme" title="Switch to dark mode" aria-label="Switch to dark mode">🌙</button>
     <span id="save-status">Ready</span>
     <span id="last-saved" style="font-size:11px;color:#64748B;margin-left:4px"></span>
   </header>
@@ -1382,23 +1453,23 @@ function renderTermRows(){
     const offs=DB.offerings.filter(o=>rows.some(r=>r.code===o.term)).length;
     h+=`<div style="margin-bottom:18px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-        <strong style="color:var(--navy);font-size:14px">${esc(ay)}</strong>
+        <strong style="color:var(--navytx);font-size:14px">${esc(ay)}</strong>
         <span style="font-size:12px;color:var(--dgray)">${offs} offering${offs===1?'':'s'}</span>
         <button class="btn btn-s ay-del" data-ay="${esc(ay)}" style="margin-left:auto;font-size:11px;color:var(--red);border-color:var(--red)">Delete year</button>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr>
-          <th style="text-align:left;padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px">Term</th>
-          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Anonymous visitors can see this term">Public</th>
-          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Program Directors can see this term">PD sees</th>
-          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navy);font-size:11px" title="Program Directors can edit offerings in this term">PD edits</th>
+          <th style="text-align:left;padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px">Term</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Anonymous visitors can see this term">Public</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Program Directors can see this term">PD sees</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Program Directors can edit offerings in this term">PD edits</th>
         </tr></thead><tbody>`;
     rows.forEach(t=>{
       h+=`<tr>
-        <td style="padding:6px 8px;border-bottom:1px solid #E8EDF3">${esc(t.label)} <span style="color:#94A3B8;font-size:11px">${esc(t.code)}</span></td>
-        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_public"${t.is_public?' checked':''}></td>
-        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_visible"${t.is_pd_visible?' checked':''}></td>
-        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid #E8EDF3"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_editable"${t.is_pd_editable?' checked':''}></td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--rowline)">${esc(t.label)} <span style="color:var(--muted);font-size:11px">${esc(t.code)}</span></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_public"${t.is_public?' checked':''}></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_visible"${t.is_pd_visible?' checked':''}></td>
+        <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_editable"${t.is_pd_editable?' checked':''}></td>
       </tr>`;
     });
     h+=`</tbody></table></div>`;
@@ -1670,13 +1741,13 @@ function renderGantt(){
   const pct=s=>((s/N)*100).toFixed(2)+'%';
   const hrlbl=si=>{const h=7+Math.floor(si/2),m=si%2?'30':'00';return m==='00'?(h<12?h+'am':h===12?'12pm':(h-12)+'pm'):''};
   let html='<div style="min-width:900px">';
-  html+='<div class="g-hdr" style="display:grid;grid-template-columns:260px 1fr"><div style="background:#334155;color:white;padding:6px 10px;font-size:11px;font-weight:700">Course</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
-  GDAYS.forEach(d=>html+=`<div style="background:#1F3864;color:white;text-align:center;font-size:11px;font-weight:700;padding:5px;border-right:1px solid #2d4a7a">${d}</div>`);
+  html+='<div class="g-hdr" style="display:grid;grid-template-columns:260px 1fr"><div style="background:var(--grp1);color:white;padding:6px 10px;font-size:11px;font-weight:700">Course</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
+  GDAYS.forEach(d=>html+=`<div style="background:var(--navy);color:white;text-align:center;font-size:11px;font-weight:700;padding:5px;border-right:1px solid var(--navyhv)">${d}</div>`);
   html+='</div></div>';
-  html+='<div class="g-times" style="display:grid;grid-template-columns:260px 1fr;background:#F8FAFC"><div style="height:16px;background:#EFF3F8"></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
+  html+='<div class="g-times" style="display:grid;grid-template-columns:260px 1fr;background:var(--surface-2)"><div style="height:16px;background:var(--rowline)"></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
   for(let d=0;d<5;d++){
-    html+=`<div style="position:relative;height:16px;border-right:1px solid #E2EAF4">`;
-    for(let si=0;si<N;si++){const l=hrlbl(si);if(l)html+=`<span style="position:absolute;left:${pct(si)};font-size:8px;color:#94A3B8;transform:translateX(-50%);white-space:nowrap">${l}</span>`;}
+    html+=`<div style="position:relative;height:16px;border-right:1px solid var(--rowline)">`;
+    for(let si=0;si<N;si++){const l=hrlbl(si);if(l)html+=`<span style="position:absolute;left:${pct(si)};font-size:8px;color:var(--muted);transform:translateX(-50%);white-space:nowrap">${l}</span>`;}
     html+='</div>';
   }
   html+='</div></div>';
@@ -1687,9 +1758,9 @@ function renderGantt(){
     const cap=parseInt(o.totalCap)||0,en=enrNum(o);
     const eff=en!=null?en:cap;                                 // blank → fall back to cap
     const disp=en!=null?(en>0?en:''):(cap>0?'('+cap+')':'');   // (parens) = cap fallback
-    html+=`<div style="display:grid;grid-template-columns:260px 1fr;border-bottom:1px solid #EFF3F8"><div style="padding:4px 8px;font-size:11px;overflow:hidden"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.fullName)}</div><div style="color:#64748B;font-size:10px">${esc(o.instructor1)}</div></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">`;
+    html+=`<div style="display:grid;grid-template-columns:260px 1fr;border-bottom:1px solid var(--rowline)"><div style="padding:4px 8px;font-size:11px;overflow:hidden"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.fullName)}</div><div style="color:var(--dgray);font-size:10px">${esc(o.instructor1)}</div></div><div style="display:grid;grid-template-columns:repeat(5,1fr)">`;
     for(let d=0;d<5;d++){
-      html+=`<div style="position:relative;height:34px;border-right:1px solid #E2EAF4">`;
+      html+=`<div style="position:relative;height:34px;border-right:1px solid var(--rowline)">`;
       if(slots&&days.includes(d)&&slots.end>slots.start){
         const si=Math.max(0,Math.floor(slots.start)),ei=Math.min(N,Math.ceil(slots.end));
         const left=pct(si),width=((ei-si)/N*100).toFixed(2)+'%';
@@ -1700,7 +1771,7 @@ function renderGantt(){
     }
     html+='</div></div>';
   });
-  html+='<div style="display:grid;grid-template-columns:260px 1fr;background:#1F3864"><div style="padding:5px 10px;color:white;font-size:11px;font-weight:700">▶ STUDENTS ON CAMPUS</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
+  html+='<div style="display:grid;grid-template-columns:260px 1fr;background:var(--navy)"><div style="padding:5px 10px;color:white;font-size:11px;font-weight:700">▶ STUDENTS ON CAMPUS</div><div style="display:grid;grid-template-columns:repeat(5,1fr)">';
   for(let d=0;d<5;d++){
     html+='<div style="display:flex;border-right:1px solid rgba(255,255,255,.1)">';
     for(let si=0;si<N;si++){
@@ -1919,13 +1990,13 @@ function renderCht(){
   if(catF)instrs=instrs.filter(i=>i.cat===catF);
   if(q)instrs=instrs.filter(i=>i.name.toLowerCase().includes(q));
   const sty='padding:8px 10px;position:sticky;top:0;z-index:5';
-  let html=`<table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="background:#1F3864;color:white">
+  let html=`<table style="border-collapse:collapse;font-size:12px;width:100%"><thead><tr style="background:var(--navy);color:white">
     <th style="${sty};text-align:left;min-width:160px">Instructor</th><th style="${sty};text-align:left">Category</th>`;
   TERMS.forEach(t=>{html+=`<th style="${sty};min-width:160px">${esc(TL[t])}</th><th style="${sty}">Eff CR</th><th style="${sty}">Raw CR</th>`;});
   progs().forEach(p=>html+=`<th style="${sty}">${p}</th>`);
   html+=`<th style="${sty}">GR CR</th><th style="${sty}">UG CR</th><th style="${sty}">Ann Raw</th><th style="${sty}">Ann Eff</th><th style="${sty};background:#C00000">FTE</th></tr></thead><tbody>`;
   instrs.forEach((inst,ri)=>{
-    const bg=ri%2?'#F8FAFC':'#FFF';
+    const bg=ri%2?'var(--surface-2)':'var(--surface)';
     let aR=0,aE=0;const pc={};progs().forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
     let tds='';
     TERMS.forEach(t=>{
@@ -1936,25 +2007,25 @@ function renderCht(){
         // Schedule tab, and "BSTA - 500: Reading and Research" matches what is
         // shown there. Stripping the number made the two views disagree.
         return`<div style="font-size:10px;padding:1px 0">${esc(o.course)}`
-          +(o.ex?' <span style="background:#FEF3C7;color:#92400E;padding:0 3px;border-radius:2px;font-size:9px">EX</span>':'')
-          +(o.two?' <span style="background:#DBEAFE;color:#1E40AF;padding:0 3px;border-radius:2px;font-size:9px">2I</span>':'')+'</div>';
+          +(o.ex?' <span style="background:var(--ltgold);color:var(--txgold);padding:0 3px;border-radius:2px;font-size:9px">EX</span>':'')
+          +(o.two?' <span style="background:var(--ltbluep);color:var(--txblue);padding:0 3px;border-radius:2px;font-size:9px">2I</span>':'')+'</div>';
       }).join('');
       aR+=tR;aE+=tE;
-      const eb=tE>0?'#DCFCE7':bg;
-      tds+=`<td style="vertical-align:top;min-width:160px;padding:5px 10px;background:${bg}">${cells||'<span style="color:#CBD5E1;font-size:10px">—</span>'}</td>`
+      const eb=tE>0?'var(--ltgrn)':bg;
+      tds+=`<td style="vertical-align:top;min-width:160px;padding:5px 10px;background:${bg}">${cells||'<span style="color:var(--mgray);font-size:10px">—</span>'}</td>`
           +`<td style="text-align:center;font-weight:700;padding:5px 10px;background:${eb};vertical-align:top">${tE>0?tE.toFixed(1):''}</td>`
           +`<td style="text-align:center;padding:5px 10px;background:${bg};vertical-align:top">${tR||''}</td>`;
     });
     const pcells=progs().map(p=>`<td style="text-align:center;padding:5px 10px;background:${bg}">${pc[p]||''}</td>`).join('');
     const fte=(FTE_CATS.has(inst.cat)&&aE)?(aE*0.03).toFixed(3):'';
-    const fteBg=fte&&parseFloat(fte)>0.5?'#FEE2E2':bg;
+    const fteBg=fte&&parseFloat(fte)>0.5?'var(--ltred)':bg;
     html+=`<tr><td style="padding:5px 10px;font-weight:600;vertical-align:top;background:${bg}">${esc(inst.name)}</td>`
-         +`<td style="padding:5px 10px;vertical-align:top;background:${bg};color:#64748B;font-size:11px">${esc(inst.cat)}</td>`
+         +`<td style="padding:5px 10px;vertical-align:top;background:${bg};color:var(--dgray);font-size:11px">${esc(inst.cat)}</td>`
          +tds+pcells
          +`<td style="text-align:center;padding:5px 10px;background:${bg}">${gc.GR||''}</td>`
          +`<td style="text-align:center;padding:5px 10px;background:${bg}">${gc.UG||''}</td>`
          +`<td style="text-align:center;padding:5px 10px;background:${bg}">${aR||''}</td>`
-         +`<td style="text-align:center;font-weight:700;padding:5px 10px;background:${aE>0?'#DCFCE7':bg}">${aE?aE.toFixed(1):''}</td>`
+         +`<td style="text-align:center;font-weight:700;padding:5px 10px;background:${aE>0?'var(--ltgrn)':bg}">${aE?aE.toFixed(1):''}</td>`
          +`<td style="text-align:center;font-weight:700;padding:5px 10px;background:${fteBg}">${fte}</td></tr>`;
   });
   html+='</tbody></table>';
@@ -4910,6 +4981,34 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.addEventListener('mouseover',showTip);
   document.addEventListener('mousemove',moveTip);
   document.addEventListener('mouseout',hideTip);
+})();
+
+/* ── THEME TOGGLE ─────────────────────────────────────────────
+   The theme itself is applied by the pre-paint script in <head>; this only
+   handles the click, persistence, and the button's own label. If the user has
+   never chosen explicitly, the app keeps following the OS setting live. */
+(function(){
+  const KEY='sph-theme', root=document.documentElement, btn=$('btn-theme');
+  const stored=()=>{try{return localStorage.getItem(KEY);}catch(e){return null;}};
+  function sync(){
+    if(!btn)return;
+    const dark=root.getAttribute('data-theme')==='dark';
+    btn.textContent=dark?'☀':'🌙';
+    const t=dark?'Switch to light mode':'Switch to dark mode';
+    btn.title=t; btn.setAttribute('aria-label',t);
+  }
+  if(btn)btn.addEventListener('click',()=>{
+    const next=root.getAttribute('data-theme')==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem(KEY,next);}catch(e){}
+    sync();
+  });
+  if(window.matchMedia){
+    const mq=window.matchMedia('(prefers-color-scheme:dark)');
+    const onSys=e=>{const s=stored();if(s!=='dark'&&s!=='light'){root.setAttribute('data-theme',e.matches?'dark':'light');sync();}};
+    mq.addEventListener?mq.addEventListener('change',onSys):mq.addListener(onSys);
+  }
+  sync();
 })();
 
 </script>
