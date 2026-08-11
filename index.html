@@ -1633,10 +1633,22 @@ function renderSched(){
   rows.sort((a,b)=>{
     let av=a[sortCol]??'',bv=b[sortCol]??'';
     if(sortCol==='term'){av=TO[av]??0;bv=TO[bv]??0;}
-    const p=av<bv?-sortDir:av>bv?sortDir:0;
+    let p;
+    if(sortCol==='fullName'){
+      // Same course family (base course + its sections): order the base row
+      // (no section) ahead of any numbered section. A raw fullName string
+      // compare gets this backwards — "450-1:" sorts before "450:" because
+      // '-' precedes ':' — so same-family rows use cmpSection instead.
+      const ab=baseCodeOf(a.courseId),bb=baseCodeOf(b.courseId);
+      p=(ab&&bb&&ab===bb)?cmpSection(a.section,b.section)*sortDir:(av<bv?-sortDir:av>bv?sortDir:0);
+    }else{
+      p=av<bv?-sortDir:av>bv?sortDir:0;
+    }
     if(p)return p;
     const td=(TO[a.term]??0)-(TO[b.term]??0);if(td)return td;
     const pd=a.prefix.localeCompare(b.prefix);if(pd)return pd;
+    const ab=baseCodeOf(a.courseId),bb=baseCodeOf(b.courseId);
+    if(ab&&bb&&ab===bb)return cmpSection(a.section,b.section);
     return(a.fullName??'').localeCompare(b.fullName??'');
   });
   $('sched-ct').textContent=rows.length+' offering'+(rows.length!==1?'s':'');
@@ -2000,7 +2012,7 @@ function renderCht(){
     let aR=0,aE=0;const pc={};progs().forEach(p=>pc[p]=0);const gc={GR:0,UG:0,B:0};
     let tds='';
     TERMS.forEach(t=>{
-      const offs=inst.terms[t];let tR=0,tE=0;
+      const offs=inst.terms[t].slice().sort((a,b)=>a.course.localeCompare(b.course));let tR=0,tE=0;
       const cells=offs.map(o=>{
         tR+=o.cr;tE+=o.eff;pc[o.pfx]=(pc[o.pfx]||0)+o.cr;gc[o.grugb]=(gc[o.grugb]||0)+o.cr;
         // Full name, not the bare title: a CHTool row is read alongside the
