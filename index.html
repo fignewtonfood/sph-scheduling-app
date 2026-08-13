@@ -2687,6 +2687,14 @@ async function saveCrs(){
     const idx=DB.courses.findIndex(x=>x.id===eidC);if(idx>=0)DB.courses[idx]=data;
     const r=await sbSave(sb.from('courses').update(row).eq('id',uuid),'● Course saved');
     if(!r)return;                       // reverted on error
+    // Existing offerings cache prefix/courseNumber/fullName from load time —
+    // a base edit (prefix, number, title) has to travel down to them too, or
+    // the schedule keeps grouping/filtering on the old value until a reload.
+    DB.offerings.forEach(o=>{
+      if(o.courseId!==id)return;
+      o.prefix=data.prefix;o.courseNumber=data.number;
+      o.fullName=crsFullName(data.prefix,data.number,data.number2,data.title,o.section);
+    });
   }else{
     const {data:ins,error}=await sb.from('courses').insert(row).select().single();
     if(error){setSS('⚠ Not added: '+error.message);return;}
