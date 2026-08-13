@@ -2586,9 +2586,9 @@ function saveOff(){
   const cid=val('om-course');const c=DB.courses.find(x=>x.id===cid);
   if(!cid||!c){alert('Please select a course.');return;}
   if(isNegative(val('om-enroll'))){alert('Enrollment cannot be negative.');$('om-enroll').focus();return;}
-  const nd=c.number2?`${c.number}/${c.number2}`:c.number;
   const data={id:eidO??genid(),term:val('om-term'),prefix:c.prefix,courseNumber:c.number,courseId:cid,
-    fullName:`${c.prefix} - ${nd}: ${c.title}`,instructor1:val('om-i1'),instructor2:val('om-i2'),
+    fullName:crsFullName(c.prefix,c.number,c.number2,c.title,c.section),section:c.section||'',
+    instructor1:val('om-i1'),instructor2:val('om-i2'),
     i1Email:'',i2Email:'',days:val('om-days'),time:val('om-time'),modality:val('om-mod'),lms:(val('om-mod')==='In-Person'?'':val('om-lms')),
     roomed:val('om-room'),roomNumber:val('om-roomn'),grugb:c.grugb||'GR',totalCap:val('om-cap'),
     enrollment:val('om-enroll'),ohsuCap1:val('om-o1'),ohsuCap2:val('om-o2'),psuCap1:val('om-p1'),
