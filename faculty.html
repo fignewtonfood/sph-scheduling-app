@@ -222,6 +222,7 @@ tbody tr.rowflash td{animation:rowflash 1.4s ease-out}
 .fg{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
 .fg .full{grid-column:1/-1}
 .f label{display:block;font-size:11px;font-weight:600;color:var(--dgray);margin-bottom:3px}
+.fhint{font-size:11px;color:var(--dgray);margin-top:3px}
 .f input,.f select,.f textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--mgray);border-radius:5px;font-family:inherit;background:var(--surface);color:var(--text)}
 .f textarea{min-height:64px;resize:vertical}
 .sect{grid-column:1/-1;display:flex;align-items:baseline;gap:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navytx);border-bottom:1px solid var(--mgray);padding-bottom:5px;margin-top:6px}
@@ -272,6 +273,7 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
         <input type="search" id="f-q" placeholder="Search name, unit, employer…">
         <select id="f-cat" class="signed-only"><option value="">All categories</option></select>
         <select id="f-unit"><option value="">All units</option></select>
+        <select id="f-employer"><option value="">All employers</option><option value="OHSU">OHSU</option><option value="PSU">PSU</option><option value="Other">Other</option></select>
         <select id="f-pub" class="admin-only"><option value="">All profiles</option><option value="pub">Published</option><option value="draft">Draft / unpublished</option></select>
         <select id="f-ceph" class="signed-only">
           <option value="">All CEPH statuses</option>
@@ -423,12 +425,21 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
   </div>
 </div>
 
-<!-- ── CHANGE LOG MODAL ───────────────────────────────────────── -->
+<!-- ── CHANGE REPORT MODAL ────────────────────────────────────── -->
 <div class="mo" id="mo-log">
   <div class="mc">
-    <div class="mh"><h3>Faculty Change Log</h3><button class="x" data-close="mo-log">×</button></div>
-    <div class="mb" id="log-body"></div>
-    <div class="mf"><button class="btn" data-close="mo-log">Close</button></div>
+    <div class="mh"><h3>Faculty Change Report</h3><button class="x" data-close="mo-log">×</button></div>
+    <div class="mb f"><div class="fg">
+      <div><label>From date</label><input id="rp-from" type="date"></div>
+      <div><label>To date</label><input id="rp-to" type="date"><div class="fhint">Leave "To" blank for “up to now”.</div></div>
+      <div class="full"><label>Editor</label><select id="rp-actor"><option value="">All editors</option></select></div>
+      <div class="full"><label style="display:flex;align-items:center;justify-content:flex-start;gap:6px;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;margin:0"><input type="checkbox" id="rp-exself" style="width:auto;flex:none;margin:0"> Exclude my own changes</label></div>
+      <div class="full"><div class="fhint" id="rp-status">Pick a range and generate. Defaults to changes since your last report on this device.</div></div>
+    </div></div>
+    <div class="mf">
+      <button class="btn" data-close="mo-log">Close</button>
+      <button class="btn btn-p" id="btn-rp-gen">Generate .txt</button>
+    </div>
   </div>
 </div>
 
@@ -674,9 +685,18 @@ function fillFilters(){
    so this toggle only ever matters to signed-in users. */
 const isInactive=f=>(f.categories||[]).includes('Inactive');
 
+// Employer bucket: OHSU/PSU are exact (case/whitespace-insensitive) matches;
+// "Other" is any non-blank value that isn't OHSU or PSU; blank matches neither.
+function employerBucket(f){
+  const e=(f.employer||'').trim().toUpperCase();
+  if(!e)return '';
+  if(e==='OHSU')return 'OHSU';
+  if(e==='PSU')return 'PSU';
+  return 'Other';
+}
 function filtered(){
   const q=val('f-q').toLowerCase().trim(),
-        cat=val('f-cat'), unit=val('f-unit'), ceph=val('f-ceph'),
+        cat=val('f-cat'), unit=val('f-unit'), ceph=val('f-ceph'), employer=val('f-employer'),
         teachOnly=$('f-teach').checked,
         showInact=$('f-inact').checked, pub=val('f-pub');
   return FAC.filter(f=>{
@@ -689,6 +709,7 @@ function filtered(){
     if(!showInact&&cat!=='Inactive'&&isInactive(f))return false;
     if(cat&&!(f.categories||[]).includes(cat))return false;
     if(unit&&f.sph_unit!==unit)return false;
+    if(employer&&employerBucket(f)!==employer)return false;
     if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
     if(pub==='pub'  &&!(WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
     if(pub==='draft'&& (WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
@@ -1339,37 +1360,151 @@ async function logChange(action,fid,name,before,after,entity){
   }catch(e){/* the edit itself already succeeded; never fail the UI on the log */}
 }
 
-async function showLog(){
-  $('log-body').innerHTML='<div class="gate">Loading…</div>';
-  openM('mo-log');
-  const {data,error}=await sb.from('faculty_change_log')
-    .select('*').order('changed_at',{ascending:false}).limit(200);
-  if(error){$('log-body').innerHTML=`<div class="gate">⚠ ${esc(error.message)}</div>`;return;}
-  if(!data||!data.length){$('log-body').innerHTML='<div class="gate">No changes recorded yet.</div>';return;}
-  $('log-body').innerHTML=data.map(r=>{
-    const when=new Date(r.changed_at).toLocaleString('en-US',
-      {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
-    const diffs=fieldDiffs(r.before,r.after);
-    return `<div style="padding:10px 0;border-bottom:1px solid var(--rowline)">
-      <div style="font-size:13px">
-        <span class="chip">${esc(r.action)}</span>
-        <b>${esc(r.faculty_name||'(unknown)')}</b>
-        <span class="muted" style="font-size:12px"> — ${esc(r.changed_by||'?')} · ${esc(when)}</span>
-      </div>
-      ${diffs?`<div style="font-size:12px;color:var(--dgray);margin-top:5px;line-height:1.6">${diffs}</div>`:''}
-    </div>`;
-  }).join('');
+// Human-readable labels for change-log fields, across both entity shapes
+// ('faculty' record edits and 'faculty_web_profile' edits). Anything not
+// listed here falls back to a humanized version of the raw column name.
+const RP_FAC_LABELS={
+  last_name:'Last Name',first_name:'First Name',email:'Email',secondary_email:'Secondary Email',
+  sph_unit:'SPH Unit',pronouns:'Pronouns',rank:'Rank',appointment_type:'Appointment Type',
+  sph_association:'SPH Association',employer:'Employer',ohsu_employment_org:'OHSU Employment Org',
+  role_when_active:'Role When Active',fte_in_sph:'FTE in SPH',start_date:'Start Date',
+  appt_expiration_date:'Appt Expiration',primary_id:'Primary ID',ohsu_id:'OHSU ID',psu_id:'PSU ID',
+  next_review_type:'Next Review Type',next_review_year:'Next Review Year',
+  last_review_type:'Last Review Type',last_review_year:'Last Review Year',
+  previous_promotion_date:'Previous Promotion Date',promotion_eligible_year:'Promotion Eligible Year',
+  promotion_target:'Promotion Target',special_notes:'Special Notes',notes:'Notes',
+  program_director_detail:'PD Detail',administrator_detail:'Admin Detail',
+  is_program_director:'Program Director',is_administrator:'Administrator',categories:'Categories',
+  category:'Profile Category',subcategory:'Profile Subcategory',ceph_flag:'CEPH Flag',
+  photo_url:'Photo URL',is_published:'Published',biography_md:'Biography',
+  education:'Education',research:'Research',awards:'Awards'
+};
+function _facLabel(k){return RP_FAC_LABELS[k]||(k.charAt(0).toUpperCase()+k.slice(1)).replace(/_/g,' ');}
+// Render any snapshot value (string, boolean, array of strings, array of
+// objects) as a single readable line for the .txt report.
+function _facFmtVal(v){
+  if(v==null||v==='')return '—';
+  if(Array.isArray(v)){
+    if(!v.length)return '—';
+    if(typeof v[0]==='object')return v.map(o=>Object.values(o).filter(Boolean).join(' ')).join('; ');
+    return v.join(', ');
+  }
+  if(typeof v==='boolean')return v?'Yes':'No';
+  return String(v);
 }
-function fieldDiffs(before,after){
-  if(!before||!after)return '';
-  const out=[];
-  const keys=new Set([...Object.keys(before),...Object.keys(after)]);
-  keys.forEach(k=>{
-    if(k==='name')return;
-    const a=JSON.stringify(before[k]??null), b=JSON.stringify(after[k]??null);
-    if(a!==b)out.push(`<b>${esc(k)}</b>: ${esc(before[k]??'—')} → ${esc(after[k]??'—')}`);
+
+/* ─── CHANGE REPORT ──────────────────────────────────────────
+   Mirrors the scheduling app's Change Report: reads the shared
+   faculty_change_log table for a chosen date range and exports a
+   plain-text report. "From" defaults to the last-run timestamp on
+   this device (per-device via localStorage), like the schedule app. */
+const RP_LAST='sph_faculty_report_lastrun';
+async function openLog(){
+  let from;
+  try{from=localStorage.getItem(RP_LAST);}catch(e){}
+  if(!from){const d=new Date(Date.now()-30*86400000);from=d.toISOString();}
+  $('rp-from').value=from.slice(0,10);
+  $('rp-to').value='';
+  const sel=$('rp-actor'); sel.innerHTML='<option value="">All editors</option>';
+  try{
+    const {data}=await sb.from('faculty_change_log').select('changed_by').not('changed_by','is',null);
+    const emails=[...new Set((data||[]).map(r=>r.changed_by).filter(Boolean))].sort();
+    emails.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;sel.appendChild(o);});
+  }catch(e){}
+  $('rp-exself').checked=false;
+  $('rp-status').textContent='Pick a range and generate. Defaults to changes since your last report on this device.';
+  openM('mo-log');
+}
+async function genFacReport(){
+  const fromStr=val('rp-from'), toStr=val('rp-to'), actor=val('rp-actor');
+  if(!fromStr){$('rp-status').textContent='⚠ Choose a From date.';return;}
+  const fromISO=new Date(fromStr+'T00:00:00').toISOString();
+  const toISO=toStr?new Date(toStr+'T23:59:59').toISOString():new Date().toISOString();
+  $('rp-status').textContent='Generating…';
+  let q=sb.from('faculty_change_log').select('*')
+        .gte('changed_at',fromISO).lte('changed_at',toISO)
+        .order('changed_at',{ascending:true});
+  if(actor)q=q.eq('changed_by',actor);
+  const {data,error}=await q;
+  if(error){$('rp-status').textContent='⚠ '+error.message;return;}
+  let rows=data||[];
+  const exSelf=$('rp-exself').checked;
+  if(exSelf&&currentUserEmail)rows=rows.filter(r=>r.changed_by!==currentUserEmail);
+  const rep=buildFacReportText(rows,fromStr,toStr||'(now)',actor,exSelf?currentUserEmail:null);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([rep.text],{type:'text/plain;charset=utf-8'}));
+  a.download='SPH_Faculty_Changes_'+fromStr+'_to_'+(toStr||'now')+'.txt';a.click();
+  try{localStorage.setItem(RP_LAST,new Date().toISOString());}catch(e){}
+  $('rp-status').textContent='✓ Generated '+rep.count+' net change'+(rep.count!==1?'s':'')+'. Saved as .txt.';
+}
+function _fmtTs(iso){
+  const d=new Date(iso);
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function buildFacReportText(rows,from,to,actor,exSelfEmail){
+  // Net-zero field suppression (update rows only): for each person+entity, if
+  // a field's value in the EARLIEST update's `before` equals its value in the
+  // LATEST update's `after`, it netted to no change over the window — every
+  // line touching that field is suppressed. Rows left with no remaining diffs
+  // drop out entirely. (rows arrive ordered by changed_at ascending.)
+  const upd={};   // "entity|faculty_id" → [update rows]
+  rows.forEach(r=>{ if(r.action==='update'){ const k=(r.entity||'faculty')+'|'+r.faculty_id; (upd[k]=upd[k]||[]).push(r); } });
+  const suppress={};
+  Object.keys(upd).forEach(k=>{
+    const list=upd[k], first=list[0], last=list[list.length-1];
+    const fb=first.before||{}, la=last.after||{};
+    const keys=new Set([...Object.keys(fb),...Object.keys(la)]);
+    const s=new Set();
+    keys.forEach(fk=>{ if(fk==='name')return; if(JSON.stringify(fb[fk]??null)===JSON.stringify(la[fk]??null))s.add(fk); });
+    suppress[k]=s;
   });
-  return out.join('<br>');
+
+  const L=[];
+  L.push('SPH FACULTY DIRECTORY — CHANGE REPORT');
+  L.push('Range: '+from+'  →  '+to);
+  if(actor)L.push('Editor: '+actor);
+  if(exSelfEmail)L.push('Excluding edits by: '+exSelfEmail);
+  L.push('Generated: '+_fmtTs(new Date().toISOString()));
+  L.push('='.repeat(60));
+  L.push('');
+  let shown=0;
+  const body=[];
+  rows.forEach(r=>{
+    const who=r.changed_by||'(unknown)';
+    const when=_fmtTs(r.changed_at);
+    const b=r.before||{}, a=r.after||{};
+    const name=(r.faculty_name||a.name||b.name||'(unknown)');
+    const tag=(r.entity==='faculty_web_profile')?' [Profile]':'';
+    if(r.action==='create'){
+      body.push(when+' · '+who+tag);
+      body.push('  ADDED    '+name);
+      body.push(''); shown++;
+    }else if(r.action==='delete'){
+      body.push(when+' · '+who+tag);
+      body.push('  REMOVED  '+name);
+      body.push(''); shown++;
+    }else{ // update
+      const sk=(r.entity||'faculty')+'|'+r.faculty_id;
+      const sup=suppress[sk]||new Set();
+      const diffs=[];
+      const keys=new Set([...Object.keys(b),...Object.keys(a)]);
+      keys.forEach(k=>{
+        if(k==='name'||sup.has(k))return;
+        const ov=JSON.stringify(b[k]??null), nv=JSON.stringify(a[k]??null);
+        if(ov!==nv)diffs.push('           '+_facLabel(k)+': "'+_facFmtVal(b[k])+'" → "'+_facFmtVal(a[k])+'"');
+      });
+      if(!diffs.length)return;                       // nothing left after suppression
+      body.push(when+' · '+who+tag);
+      body.push('  EDITED   '+name);
+      diffs.forEach(d=>body.push(d));
+      body.push(''); shown++;
+    }
+  });
+  L.push('Net changes: '+shown);
+  L.push('');
+  if(!shown)return {text:L.concat(['No net changes in this range.']).join('\n'),count:0};
+  return {text:L.concat(body).join('\n'),count:shown};
 }
 
 /* ─── MODAL PLUMBING ───────────────────────────────────────── */
@@ -1421,7 +1556,7 @@ async function reload(){
 
 /* ─── WIRING ───────────────────────────────────────────────── */
 function wire(){
-  ['f-q','f-cat','f-unit','f-pub','f-ceph','f-teach','f-inact'].forEach(id=>{
+  ['f-q','f-cat','f-unit','f-employer','f-pub','f-ceph','f-teach','f-inact'].forEach(id=>{
     const e=$(id);if(!e)return;
     e.addEventListener(id==='f-q'?'input':'change',renderDir);
   });
@@ -1432,12 +1567,13 @@ function wire(){
   /* Resets every control in the toolbar to its default, including the two
      checkboxes — 'Show inactive' returns to hidden, matching a fresh load. */
   $('btn-clear').onclick=()=>{
-    ['f-q','f-cat','f-unit','f-pub','f-ceph'].forEach(id=>{const e=$(id);if(e)e.value='';});
+    ['f-q','f-cat','f-unit','f-employer','f-pub','f-ceph'].forEach(id=>{const e=$(id);if(e)e.value='';});
     ['f-teach','f-inact'].forEach(id=>{const e=$(id);if(e)e.checked=false;});
     renderDir();
   };
   $('btn-add').onclick=()=>openFM(null);
-  $('btn-log').onclick=showLog;
+  $('btn-log').onclick=openLog;
+  $('btn-rp-gen').onclick=genFacReport;
   $('btn-save-fac').onclick=saveFac;
   $('btn-del-fac').onclick=delFac;
   $('btn-save-prof').onclick=savePM;
