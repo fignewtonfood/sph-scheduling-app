@@ -2156,8 +2156,12 @@ function toggleOff(cid,pfx,term){
     removeIt();
   }else{
     const c=DB.courses.find(x=>x.id===cid);if(!c)return;
-    const nd=c.number2?`${c.number}/${c.number2}`:c.number;
-    const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,fullName:`${pfx} - ${nd}: ${c.title}`,
+    // Mirror loadData()'s derivation: fullName carries the section suffix (if
+    // any) and section is copied onto the offering, exactly as a reload would
+    // produce. Building fullName/section by hand here previously dropped the
+    // section marker until the next page load.
+    const off={id:genid(),term,prefix:pfx,courseNumber:c.number,courseId:cid,
+      fullName:crsFullName(c.prefix,c.number,c.number2,c.title,c.section),section:c.section||'',
       instructor1:'',instructor2:'',totalCap:c.maxCap||'',ohsuCap1:'',ohsuCap2:'',psuCap1:'',psuCap2:'',
       days:'',time:'',restrictOhsu:'',restrictPsu:'',roomed:'',roomNumber:'',psuText:'',
       modality:'',grugb:c.grugb||'GR',enrollment:'',i1Email:'',i2Email:'',adminNotes:'',pot:'',crnPsu:'',crnOhsu:'',printStatus:'Print'};
