@@ -137,6 +137,7 @@ td{padding:7px 10px;vertical-align:middle}
 .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;background:var(--pillbg);color:var(--pilltx)}
 .p-ip{background:var(--ltgrn);color:var(--txgrn)}.p-oa{background:var(--ltbluep);color:var(--txblue)}
 .p-os{background:var(--ltpurp);color:var(--txpurp)}.p-hy{background:var(--ltyel);color:var(--txyel)}
+.lms-sub{display:block;font-size:10px;color:var(--dgray);margin-top:2px;line-height:1.3}
 
 /* ═══ MODALS ════════════════════════════════════════════════ */
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center}
@@ -1006,8 +1007,8 @@ const parseCR=s=>{const m=String(s??'').match(/(\d+(?:\.\d+)?)/);return m?parseF
 const termBadge=t=>`<span class="badge ${TC[t]??''}">${esc(TL[t]??t)}</span>`;
 const modPill=(m,lms)=>{
   const c=m==='In-Person'?'p-ip':m==='Online (async)'?'p-oa':m==='Online (sync)'?'p-os':m==='Hybrid'?'p-hy':'';
-  const t=(lms&&String(lms).trim())?` title="LMS: ${esc(lms)}"`:'';
-  return`<span class="pill ${c}"${t}>${esc(m)}</span>`;
+  const l=(lms&&String(lms).trim())?`<span class="lms-sub">${esc(lms)}</span>`:'';
+  return`<span class="pill ${c}">${esc(m)}</span>${l}`;
 };
 const t2s=t=>{
   if(!t)return null;
