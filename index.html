@@ -5141,14 +5141,20 @@ function taParseReport(file){
 }
 
 /* ── matching ────────────────────────────────────────────────── */
+/* crn_psu / crn_ohsu can hold more than one CRN (e.g. "10359, 10360"), so a
+   report CRN counts as a match anywhere it appears in the field — not just
+   as the field's whole value. Tokenized on non-alphanumeric separators so
+   "123" can't accidentally match inside "51230". */
+function taCrnTokens(field){
+  return tdbNorm(field).split(/[^0-9A-Za-z]+/).filter(Boolean);
+}
 function taBuildOfferingIndex(offerings){
-  const byPsu=new Map(), byOhsu=new Map();
+  const psuTokens=new Map(), ohsuTokens=new Map();
   offerings.forEach(o=>{
-    const p=tdbNorm(o.crnPsu), h=tdbNorm(o.crnOhsu);
-    if(p)byPsu.set(p,o);
-    if(h)byOhsu.set(h,o);
+    taCrnTokens(o.crnPsu).forEach(tok=>{ if(!psuTokens.has(tok))psuTokens.set(tok,o); });
+    taCrnTokens(o.crnOhsu).forEach(tok=>{ if(!ohsuTokens.has(tok))ohsuTokens.set(tok,o); });
   });
-  return {byPsu,byOhsu};
+  return {psuTokens,ohsuTokens};
 }
 function taRowRef(row){
   if(row.subj==='SOPH')return tdbTitleRef(row.title);
@@ -5166,7 +5172,7 @@ function taFallbackMatch(row,offerings){
    it resolves to exactly one candidate) so a stale/mistyped CRN in either
    system doesn't hide a real pairing. */
 function taMatchRow(row,offerings,idx){
-  const exact=row.subj==='SOPH'?idx.byOhsu.get(row.crn):idx.byPsu.get(row.crn);
+  const exact=row.subj==='SOPH'?idx.ohsuTokens.get(row.crn):idx.psuTokens.get(row.crn);
   if(exact)return {offering:exact,crnMismatch:false};
   const fb=taFallbackMatch(row,offerings);
   return fb?{offering:fb,crnMismatch:true}:{offering:null,crnMismatch:false};
@@ -5260,9 +5266,17 @@ function taRowDiffs(row,offering,crosslisted){
       push('Meeting time',meetSum.str||'—',expMeet||'—');
   }
 
+  // A room counts as matched if the report's location shows up anywhere in
+  // the schedule's room field — the field can carry more than one room — and
+  // ARRNGD (PSU's "no fixed room" code) is treated as equivalent to the
+  // schedule recording no room at all.
   const repRoom=row.meet1?row.meet1.location:'';
   const dbRoom=[offering.roomed,offering.roomNumber].filter(Boolean).join(' ');
-  if((repRoom||dbRoom)&&repRoom.toUpperCase()!==dbRoom.toUpperCase())
+  const dbNoRoom=!dbRoom.trim()||/^no\s*room$/i.test(dbRoom.trim());
+  const repArranged=/^ARRNGD$/i.test(repRoom.trim());
+  const roomOk=(repArranged&&dbNoRoom)||(!repRoom&&!dbRoom)||
+    (repRoom&&dbRoom&&dbRoom.toUpperCase().includes(repRoom.toUpperCase()));
+  if((repRoom||dbRoom)&&!roomOk)
     push('Room',repRoom||'—',dbRoom||'—');
 
   const expCap=taExpectedCap(row,offering,crosslisted);
