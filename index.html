@@ -657,6 +657,12 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
             <div id="ta-unmatched-db-list"></div>
           </section>
 
+          <section class="tdb-card" id="ta-unroomed-card" style="display:none">
+            <h3>5 · Unroomed offerings</h3>
+            <p class="tdb-sub">Matched sections where the report shows no room at all — not ARRNGD, not WEB, just blank. Called out separately since a missing room isn't a discrepancy against the schedule so much as something PSU still needs to assign.</p>
+            <div id="ta-unroomed-list"></div>
+          </section>
+
         </div>
       </div>
     </div>
@@ -5269,17 +5275,20 @@ function taRowDiffs(row,offering,crosslisted){
   // the schedule's room field — the field can carry more than one room —
   // ARRNGD (PSU's "no fixed room" code) is treated as equivalent to the
   // schedule recording no room at all, and WEB is treated as equivalent to
-  // any of the schedule's online-room spellings.
+  // any of the schedule's online-room spellings. A blank report room isn't
+  // compared here at all — those are surfaced separately as Unroomed
+  // Offerings, not as a Room discrepancy.
   const repRoom=row.meet1?row.meet1.location:'';
-  const dbRoom=[offering.roomed,offering.roomNumber].filter(Boolean).join(' ');
-  const dbNoRoom=!dbRoom.trim()||/^no\s*room$/i.test(dbRoom.trim());
-  const repArranged=/^ARRNGD$/i.test(repRoom.trim());
-  const dbOnline=/^(psu\s*online|ohsu\s*online|online)$/i.test(dbRoom.trim());
-  const repWeb=/^WEB$/i.test(repRoom.trim());
-  const roomOk=(repArranged&&dbNoRoom)||(repWeb&&dbOnline)||(!repRoom&&!dbRoom)||
-    (repRoom&&dbRoom&&dbRoom.toUpperCase().includes(repRoom.toUpperCase()));
-  if((repRoom||dbRoom)&&!roomOk)
-    push('Room',repRoom||'—',dbRoom||'—');
+  if(repRoom){
+    const dbRoom=[offering.roomed,offering.roomNumber].filter(Boolean).join(' ');
+    const dbNoRoom=!dbRoom.trim()||/^no\s*room$/i.test(dbRoom.trim());
+    const repArranged=/^ARRNGD$/i.test(repRoom.trim());
+    const dbOnline=/^(psu\s*online|ohsu\s*online|online)$/i.test(dbRoom.trim());
+    const repWeb=/^WEB$/i.test(repRoom.trim());
+    const roomOk=(repArranged&&dbNoRoom)||(repWeb&&dbOnline)||
+      (dbRoom&&dbRoom.toUpperCase().includes(repRoom.toUpperCase()));
+    if(!roomOk)push('Room',repRoom,dbRoom||'—');
+  }
 
   const expCap=taExpectedCap(row,offering,crosslisted);
   if(expCap!==null&&row.authSize!=null&&row.authSize!==expCap)
@@ -5310,6 +5319,7 @@ function taRecompute(){
 
   const diffRows=[];       // {courseLabel, crn, field, report, db}
   const unmatchedReport=[];
+  const unroomed=[];
   const matchedOfferingIds=new Set();
 
   groups.forEach(group=>{
@@ -5324,6 +5334,8 @@ function taRecompute(){
       }
       matchedOfferingIds.add(offering._uuid);
       const courseLabel=`${offering.prefix} ${offering.courseNumber}${offering.section?'-'+offering.section:''}`;
+      if(!tdbNorm(row.meet1?row.meet1.location:''))
+        unroomed.push({courseLabel,crn:row.crn,instr:[offering.instructor1,offering.instructor2].filter(Boolean).join(' / ')||'TBD'});
       if(crnMismatch){
         const expected=offering.crnPsu;
         diffRows.push({courseLabel,crn:row.crn,field:'CRN',report:row.crn,db:expected||'—'});
@@ -5336,7 +5348,7 @@ function taRecompute(){
   const unmatchedDb=offerings.filter(o=>
     TA_PSU_SUBJECTS.has((o.prefix||'').toUpperCase())&&!matchedOfferingIds.has(o._uuid));
 
-  TA.results={diffRows,unmatchedReport,unmatchedDb,
+  TA.results={diffRows,unmatchedReport,unmatchedDb,unroomed,
     groupCount:groups.length,rowCount:rows.length,offeringCount:offerings.length};
   taRenderAll();
 }
@@ -5349,12 +5361,13 @@ function taPopulateTerms(){
   TA.termsPopulated=true;
 }
 function taRenderAll(){
-  const stats=$('ta-stats-row'), diffCard=$('ta-diff-card'), urCard=$('ta-unmatched-report-card'), udCard=$('ta-unmatched-db-card');
+  const stats=$('ta-stats-row'), diffCard=$('ta-diff-card'), urCard=$('ta-unmatched-report-card'),
+    udCard=$('ta-unmatched-db-card'), unrCard=$('ta-unroomed-card');
   if(!TA.results){
-    [stats,diffCard,urCard,udCard].forEach(el=>el.style.display='none');
+    [stats,diffCard,urCard,udCard,unrCard].forEach(el=>el.style.display='none');
     return;
   }
-  const {diffRows,unmatchedReport,unmatchedDb,rowCount,offeringCount}=TA.results;
+  const {diffRows,unmatchedReport,unmatchedDb,unroomed,rowCount,offeringCount}=TA.results;
   const affected=new Set(diffRows.map(d=>d.courseLabel+'|'+d.crn)).size;
 
   stats.style.display='';
@@ -5363,7 +5376,8 @@ function taRenderAll(){
     <div class="tdb-stat"><div class="n">${offeringCount}</div><div class="l">Schedule offerings in scope</div></div>
     <div class="tdb-stat ${diffRows.length?'warn':''}"><div class="n">${diffRows.length}</div><div class="l">Discrepancies (${affected} sections)</div></div>
     <div class="tdb-stat ${unmatchedReport.length?'warn':''}"><div class="n">${unmatchedReport.length}</div><div class="l">Report rows unmatched</div></div>
-    <div class="tdb-stat ${unmatchedDb.length?'warn':''}"><div class="n">${unmatchedDb.length}</div><div class="l">Offerings unmatched</div></div>`;
+    <div class="tdb-stat ${unmatchedDb.length?'warn':''}"><div class="n">${unmatchedDb.length}</div><div class="l">Offerings unmatched</div></div>
+    <div class="tdb-stat ${unroomed.length?'warn':''}"><div class="n">${unroomed.length}</div><div class="l">Unroomed offerings</div></div>`;
 
   diffCard.style.display='';
   $('ta-diff-tb').innerHTML=diffRows.length
@@ -5381,6 +5395,11 @@ function taRenderAll(){
     `<div class="tdb-chip"><span class="badge">${esc(o.prefix+' '+o.courseNumber+(o.section?'-'+o.section:''))}</span>`+
     `<span>${esc([o.instructor1,o.instructor2].filter(Boolean).join(' / ')||'TBD')}</span>`+
     `<span class="meta">CRN ${esc(o.crnPsu||'—')}</span></div>`
+  ).join('')||'';
+
+  unrCard.style.display=unroomed.length?'':'none';
+  $('ta-unroomed-list').innerHTML=unroomed.map(u=>
+    `<div class="tdb-chip"><span class="badge">${esc(u.courseLabel)}</span><span>CRN ${esc(u.crn)}</span><span class="meta">${esc(u.instr)}</span></div>`
   ).join('')||'';
 }
 function renderTermAudit(){
