@@ -5215,25 +5215,18 @@ function taMeetingSummary(row){
   const days=[...new Set(parsed.map(p=>p.day))].sort((a,b)=>tdbDayOrder.indexOf(a)-tdbDayOrder.indexOf(b)).join('');
   return {str:`${days} ${[...ranges][0]}`};
 }
-function taExpectedCap(row,offering,crosslisted){
-  const isSoph=row.subj==='SOPH';
-  const slot=tdbSlotOf(row,offering);
-  const hasSplit=[offering.ohsuCap1,offering.ohsuCap2,offering.psuCap1,offering.psuCap2]
-    .some(v=>tdbNorm(v)!=='');
-  if(crosslisted){
-    if(hasSplit)return isSoph?tdbCap(slot===1?offering.ohsuCap1:offering.ohsuCap2)
-                              :tdbCap(slot===1?offering.psuCap1:offering.psuCap2);
-    if(!offering.number2){
-      const grad=tdbIsGradNumber(offering.courseNumber);
-      return isSoph?(grad?tdbCap(offering.totalCap):0):(grad?0:tdbCap(offering.totalCap));
-    }
-    return null;   // no split recorded and nothing to infer it from — skip, don't guess
-  }
-  return tdbCap(offering.totalCap);
+/* Auth Size only has to land on one of a few plausible schedule fields —
+   not a single computed "correct" value. SOPH rows are the OHSU side of a
+   crosslist, so they're checked against OHSU Cap 1/2; everything else is
+   checked against Total Cap or PSU Cap 1/2. */
+function taCapCandidates(row,offering){
+  return row.subj==='SOPH'
+    ? [{label:'OHSU Cap 1',val:offering.ohsuCap1},{label:'OHSU Cap 2',val:offering.ohsuCap2}]
+    : [{label:'Total Cap',val:offering.totalCap},{label:'PSU Cap 1',val:offering.psuCap1},{label:'PSU Cap 2',val:offering.psuCap2}];
 }
 
 /* ── per-row diff ────────────────────────────────────────────── */
-function taRowDiffs(row,offering,crosslisted){
+function taRowDiffs(row,offering){
   const diffs=[];
   const push=(field,report,db)=>diffs.push({field,report,db});
 
@@ -5290,9 +5283,13 @@ function taRowDiffs(row,offering,crosslisted){
     if(!roomOk)push('Room',repRoom,dbRoom||'—');
   }
 
-  const expCap=taExpectedCap(row,offering,crosslisted);
-  if(expCap!==null&&row.authSize!=null&&row.authSize!==expCap)
-    push('Section cap',String(row.authSize),String(expCap));
+  if(row.authSize!=null){
+    const present=taCapCandidates(row,offering).filter(c=>tdbNorm(c.val)!=='');
+    if(present.length&&!present.some(c=>tdbCap(c.val)===row.authSize)){
+      const dbStr=present.map(c=>`${c.label} ${tdbCap(c.val)}`).join(', ');
+      push('Section cap',String(row.authSize),dbStr);
+    }
+  }
 
   return diffs;
 }
@@ -5323,7 +5320,6 @@ function taRecompute(){
   const matchedOfferingIds=new Set();
 
   groups.forEach(group=>{
-    const crosslisted=group.rows.some(r=>r.subj==='SOPH')&&group.rows.some(r=>r.subj!=='SOPH');
     group.rows.forEach(row=>{
       const {offering,crnMismatch}=taMatchRow(row,offerings,idx);
       const num=row.crse+(row.sect?`-${row.sect}`:'');
@@ -5340,7 +5336,7 @@ function taRecompute(){
         const expected=offering.crnPsu;
         diffRows.push({courseLabel,crn:row.crn,field:'CRN',report:row.crn,db:expected||'—'});
       }
-      taRowDiffs(row,offering,crosslisted).forEach(d=>
+      taRowDiffs(row,offering).forEach(d=>
         diffRows.push({courseLabel,crn:row.crn,field:d.field,report:d.report,db:d.db}));
     });
   });
