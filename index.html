@@ -5149,12 +5149,11 @@ function taCrnTokens(field){
   return tdbNorm(field).split(/[^0-9A-Za-z]+/).filter(Boolean);
 }
 function taBuildOfferingIndex(offerings){
-  const psuTokens=new Map(), ohsuTokens=new Map();
+  const psuTokens=new Map();
   offerings.forEach(o=>{
     taCrnTokens(o.crnPsu).forEach(tok=>{ if(!psuTokens.has(tok))psuTokens.set(tok,o); });
-    taCrnTokens(o.crnOhsu).forEach(tok=>{ if(!ohsuTokens.has(tok))ohsuTokens.set(tok,o); });
   });
-  return {psuTokens,ohsuTokens};
+  return {psuTokens};
 }
 function taRowRef(row){
   if(row.subj==='SOPH')return tdbTitleRef(row.title);
@@ -5172,7 +5171,7 @@ function taFallbackMatch(row,offerings){
    it resolves to exactly one candidate) so a stale/mistyped CRN in either
    system doesn't hide a real pairing. */
 function taMatchRow(row,offerings,idx){
-  const exact=row.subj==='SOPH'?idx.ohsuTokens.get(row.crn):idx.psuTokens.get(row.crn);
+  const exact=idx.psuTokens.get(row.crn);
   if(exact)return {offering:exact,crnMismatch:false};
   const fb=taFallbackMatch(row,offerings);
   return fb?{offering:fb,crnMismatch:true}:{offering:null,crnMismatch:false};
@@ -5323,7 +5322,7 @@ function taRecompute(){
       matchedOfferingIds.add(offering._uuid);
       const courseLabel=`${offering.prefix} ${offering.courseNumber}${offering.section?'-'+offering.section:''}`;
       if(crnMismatch){
-        const expected=row.subj==='SOPH'?offering.crnOhsu:offering.crnPsu;
+        const expected=offering.crnPsu;
         diffRows.push({courseLabel,crn:row.crn,field:'CRN',report:row.crn,db:expected||'—'});
       }
       taRowDiffs(row,offering,crosslisted).forEach(d=>
