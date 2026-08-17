@@ -700,6 +700,25 @@ function renderLockBanner(){
     `You can still view everything; saving will resume once it's lifted.`;
 }
 
+// Polls app_lockdown so this tab picks up a lock/unlock triggered from the
+// scheduling app (the only place it can be triggered from) without a manual
+// reload. Purely a banner + body-class update — every write control here is
+// already CSS-gated off body.is-locked, so no re-render is needed.
+let lockPollTimer=null;
+function startLockPolling(){
+  if(lockPollTimer)return;
+  lockPollTimer=setInterval(async()=>{
+    if(!sb)return;
+    try{
+      const {data,error}=await sb.from('app_lockdown').select('*').eq('id',1).maybeSingle();
+      if(error||!data)return;
+      LOCKED=!!data.locked; LOCK_MSG=data.message||''; LOCK_BY=data.locked_by||''; LOCK_AT=data.locked_at||null;
+      renderLockBanner();
+      document.body.classList.toggle('is-locked',LOCKED);
+    }catch(e){/* skip this cycle, try again on the next tick */}
+  },45000);
+}
+
 /* ─── FILTERS ──────────────────────────────────────────────── */
 function fillFilters(){
   const cats=new Set(),units=new Set();
@@ -1690,6 +1709,7 @@ function wire(){
        :TIER==='viewer'?'Ready · signed in'
        :currentUserEmail?'Public view only · for greater access contact whitetim@pdx.edu'
        :'Ready · public view');
+  startLockPolling();
 })();
 
 /* ── THEME TOGGLE ─────────────────────────────────────────────

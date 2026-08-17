@@ -1391,6 +1391,28 @@ async function setLockdown(locked){
   renderAll(); renderActive();
 }
 
+// Polls app_lockdown so OTHER open tabs pick up a lock/unlock without a
+// manual sync — the person who actually clicks Lock/Unlock updates their own
+// view immediately via setLockdown() above; this is for everyone else.
+// Message-only edits (still locked, note changed) refresh the banner text.
+// A flip of the locked boolean also re-renders tables, since canEdit() is
+// lock-aware and row-level Edit buttons need to appear/disappear.
+let lockPollTimer=null;
+function startLockPolling(){
+  if(lockPollTimer)return;
+  lockPollTimer=setInterval(async()=>{
+    if(!sb)return;
+    try{
+      const {data,error}=await sb.from('app_lockdown').select('*').eq('id',1).maybeSingle();
+      if(error||!data)return;
+      const wasLocked=LOCKED;
+      LOCKED=!!data.locked; LOCK_MSG=data.message||''; LOCK_BY=data.locked_by||''; LOCK_AT=data.locked_at||null;
+      renderLockBanner(); applyLockUI();
+      if(wasLocked!==LOCKED){renderAll();renderActive();}
+    }catch(e){/* skip this cycle, try again on the next tick */}
+  },45000);
+}
+
 const setSS=msg=>{const e=$('save-status');if(e)e.textContent=msg;};
 /* Signed in but holding no scheduling grant. Phrased as what the person HAS,
    not as something absent: the same sentence is true whether they are awaiting
@@ -5653,6 +5675,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   rebuildTermUI();
   renderAll();
   maybeShowEnrBanner();
+  startLockPolling();
   setLM('');
   if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(SUPABASE_URL)||SUPABASE_ANON_KEY.startsWith('YOUR-')){
     setSS('⚠ Set SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file');
