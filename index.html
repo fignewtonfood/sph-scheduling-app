@@ -5307,6 +5307,24 @@ function taGroupRows(rows){
   return [...byXlst.values(),...singles];
 }
 
+/* Offerings that share the same crn_psu text are the same real-world
+   section recorded twice (or a dual listing entered as separate rows) —
+   merge them into one display line rather than one per row. Offerings
+   with no CRN at all stay on their own line; there's nothing to group by. */
+function taCollapseByCrn(offerings){
+  const groups=new Map();
+  offerings.forEach(o=>{
+    const key=tdbNorm(o.crnPsu)||('_uuid:'+o._uuid);
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(o);
+  });
+  return [...groups.values()].map(list=>({
+    label:list.map(o=>`${o.prefix} ${o.courseNumber}${o.section?'-'+o.section:''}`).join(' / '),
+    instr:[...new Set(list.flatMap(o=>[o.instructor1,o.instructor2].filter(Boolean)))].join(' / ')||'TBD',
+    crn:list[0].crnPsu||'—'
+  }));
+}
+
 /* ── main compute ────────────────────────────────────────────── */
 function taRecompute(){
   if(!TA.reportFile||!TA.targetTerm){TA.results=null;taRenderAll();return;}
@@ -5326,7 +5344,13 @@ function taRecompute(){
       const num=row.crse+(row.sect?`-${row.sect}`:'');
       const label=`${row.subj} ${num}`;
       if(!offering){
-        unmatchedReport.push({label,crn:row.crn,title:row.title,instr:`${row.i1Last}, ${row.i1First}`.replace(/^, |, $/,'')});
+        // A SOPH row belongs here as long as its title actually names an
+        // in-scope course — administrative placeholders like "SOPH NETWORK
+        // SERVICES" don't reference any course at all and stay excluded.
+        const inScope=TA_PSU_SUBJECTS.has(row.subj)||
+          (row.subj==='SOPH'&&TA_PSU_SUBJECTS.has((taRowRef(row)||{}).prefix));
+        if(inScope)
+          unmatchedReport.push({label,crn:row.crn,title:row.title,instr:`${row.i1Last}, ${row.i1First}`.replace(/^, |, $/,'')});
         return;
       }
       matchedOfferingIds.add(offering._uuid);
@@ -5345,7 +5369,7 @@ function taRecompute(){
   const unmatchedDb=offerings.filter(o=>
     TA_PSU_SUBJECTS.has((o.prefix||'').toUpperCase())&&!matchedOfferingIds.has(o._uuid));
 
-  TA.results={diffRows,unmatchedReport,unmatchedDb,unroomed,
+  TA.results={diffRows,unmatchedReport,unmatchedDb:taCollapseByCrn(unmatchedDb),unroomed,
     groupCount:groups.length,rowCount:rows.length,offeringCount:offerings.length};
   taRenderAll();
 }
@@ -5389,9 +5413,9 @@ function taRenderAll(){
 
   udCard.style.display=unmatchedDb.length?'':'none';
   $('ta-unmatched-db-list').innerHTML=unmatchedDb.map(o=>
-    `<div class="tdb-chip"><span class="badge">${esc(o.prefix+' '+o.courseNumber+(o.section?'-'+o.section:''))}</span>`+
-    `<span>${esc([o.instructor1,o.instructor2].filter(Boolean).join(' / ')||'TBD')}</span>`+
-    `<span class="meta">CRN ${esc(o.crnPsu||'—')}</span></div>`
+    `<div class="tdb-chip"><span class="badge">${esc(o.label)}</span>`+
+    `<span>${esc(o.instr)}</span>`+
+    `<span class="meta">CRN ${esc(o.crn)}</span></div>`
   ).join('')||'';
 
   unrCard.style.display=unroomed.length?'':'none';
