@@ -96,8 +96,8 @@ nav button.active{color:var(--navytx);border-bottom-color:var(--teal);font-weigh
    rules — this is purely a layout change, not a permissions change. */
 .nav-dd{position:relative;display:inline-block}
 #btn-admin-tools{font-size:11px;color:var(--dgray);padding:0 14px}
-.nav-dd-menu{display:none;position:absolute;top:100%;left:0;min-width:170px;background:var(--surface);
-  border:1px solid var(--mgray);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.15);z-index:40;
+.nav-dd-menu{display:none;position:fixed;min-width:170px;background:var(--surface);
+  border:1px solid var(--mgray);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.15);z-index:9999;
   padding:4px;flex-direction:column}
 .nav-dd-menu.open{display:flex}
 .nav-dd-menu button{height:auto;padding:8px 10px;text-align:left;border-radius:4px;white-space:nowrap;
@@ -3557,10 +3557,21 @@ function wireEvents(){
     if(canEdit())showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
     else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the header to enable admin');}}
   });
-  // Admin Tools dropdown (Lists / Terms / Lock Down)
+  // Admin Tools dropdown (Lists / Terms / Lock Down). Positioned as `fixed`,
+  // computed from the button's own rect on each open — `nav` sets
+  // overflow-x:auto, which per spec forces overflow-y:auto too, so a plain
+  // position:absolute child gets vertically clipped by nav's box. Fixed
+  // positioning escapes that entirely.
   $('btn-admin-tools').addEventListener('click',e=>{
     e.stopPropagation();
-    $('admin-tools-menu').classList.toggle('open');
+    const menu=$('admin-tools-menu');
+    const willOpen=!menu.classList.contains('open');
+    if(willOpen){
+      const r=$('btn-admin-tools').getBoundingClientRect();
+      menu.style.top=r.bottom+'px';
+      menu.style.left=r.left+'px';
+    }
+    menu.classList.toggle('open',willOpen);
   });
   $('admin-tools-menu').addEventListener('click',e=>{
     if(e.target.tagName==='BUTTON')$('admin-tools-menu').classList.remove('open');
