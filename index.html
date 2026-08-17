@@ -428,7 +428,7 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
         <table id="sched-tbl">
           <thead><tr>
             <th data-col="term">Term</th><th data-col="prefix">Prefix</th><th data-col="fullName">Course</th>
-            <th data-col="section">Section</th><th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
+            <th data-col="section">Section</th><th style="text-align:center">Cr</th><th data-col="instructor1">Instructor(s)</th><th data-col="days">Days</th><th data-col="time">Time</th>
             <th data-col="modality">Modality</th><th style="text-align:center" title="Restrictions / Permission required to register / Night class (starts ≥ 4pm) / Online">Flags</th><th data-col="totalCap">Cap</th><th>Enroll</th>
             <th class="admin-only" style="display:none">Edit</th>
           </tr></thead>
@@ -1657,11 +1657,11 @@ function renderSched(){
     th.classList.remove('sa','sd');
     if(th.dataset.col===sortCol)th.classList.add(sortDir===1?'sa':'sd');
   });
-  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="12" class="nores">No offerings match filters.</td></tr>`;return;}
+  if(!rows.length){$('sched-tb').innerHTML=`<tr><td colspan="13" class="nores">No offerings match filters.</td></tr>`;return;}
   let h='',lt=null,lp=null;
   rows.forEach(o=>{
-    if(o.term!==lt){h+=`<tr class="gt"><td colspan="12">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
-    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="12">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
+    if(o.term!==lt){h+=`<tr class="gt"><td colspan="13">${esc(TL[o.term]??o.term)}</td></tr>`;lt=o.term;lp=null;}
+    if(o.prefix!==lp){h+=`<tr class="gp"><td colspan="13">${esc(o.prefix)}</td></tr>`;lp=o.prefix;}
     const i2=o.instructor2?` &amp; ${facLink(o.instructor2)}`:'';
     // Per-term, not per-user: a PD may edit Spring while Fall is frozen.
     const canT=canEditTerm(o.term);
@@ -1701,6 +1701,7 @@ function renderSched(){
       <td>${termBadge(o.term)}</td><td><strong>${esc(o.prefix)}</strong></td>
       <td style="max-width:260px">${nameOpen}${esc(o.fullName)}${nameClose}${warnMark}${noPrint}${noteInd}${potBadge}</td>
       <td style="text-align:center">${o.section?`<span class="secpill">${esc(o.section)}</span>`:''}</td>
+      <td style="text-align:center">${esc(_crsT&&_crsT.credits||'')}</td>
       <td>${facLink(o.instructor1)}${i2}</td>
       <td>${esc(o.days)}</td><td style="white-space:nowrap">${esc(o.time)}</td>
       <td>${modPill(o.modality,o.lms)}</td><td style="text-align:center;white-space:nowrap;font-size:13px">${flags}</td><td style="text-align:center">${esc(o.totalCap)}</td>
