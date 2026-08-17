@@ -288,6 +288,7 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
           <input type="checkbox" id="f-inact"> Show inactive
         </label>
         <button class="btn btn-s" id="btn-clear">Clear filters</button>
+        <button class="btn btn-s signed-only" id="btn-exp-dir">⬇ CSV</button>
         <button class="btn btn-p btn-s admin-only" id="btn-add">+ Add Faculty</button>
         <button class="btn btn-s admin-only" id="btn-log">📄 Change Log</button>
         <span class="ceph-legend"><sup>1</sup> CEPH Primary &middot; <sup>2</sup> CEPH Non-Primary</span>
@@ -751,6 +752,35 @@ function renderDir(){
       <td>${n?`<span class="chip warn">${n} course${n>1?'s':''}</span>`:'<span class="muted">—</span>'}</td>
     </tr>`;
   }).join('');
+}
+
+/* ─── CSV EXPORT ──────────────────────────────────────────────
+   Mirrors the scheduling app's CSV export: exports exactly the rows
+   currently visible under the active filters (search, category, unit,
+   employer, publish state, CEPH, teaching, inactive toggle), with the
+   same tier-based column set as the on-screen table — plus Email
+   (already loaded for signed-in tiers) and a Teaching Courses list,
+   which is more useful in a CSV than the on-screen course count. */
+function expDir(){
+  const cols=['Last Name','First Name','SPH Unit'];
+  if(TIER!=='public')cols.push('Rank','Categories','Employer','Email');
+  cols.push('Teaching Courses');
+  const rows=[cols];
+  filtered().forEach(f=>{
+    const courses=[...new Set((TEACHING[f.id]||[])
+      .map(o=>COURSES[o.course_id]&&COURSES[o.course_id].full_name).filter(Boolean))];
+    const row=[f.last_name||'',f.first_name||'',f.sph_unit||''];
+    if(TIER!=='public')row.push(f.rank||'',(f.categories||[]).join('; '),f.employer||'',f.email||'');
+    row.push(courses.join('; '));
+    rows.push(row);
+  });
+  dlCSV(rows,`SPH_Faculty_Directory_${new Date().toISOString().slice(0,10)}.csv`);
+}
+function dlCSV(rows,fn){
+  const csv=rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+  a.download=fn;a.click();
 }
 
 /* ─── PROFILE RENDER ───────────────────────────────────────── */
@@ -1571,6 +1601,7 @@ function wire(){
     ['f-teach','f-inact'].forEach(id=>{const e=$(id);if(e)e.checked=false;});
     renderDir();
   };
+  $('btn-exp-dir').onclick=expDir;
   $('btn-add').onclick=()=>openFM(null);
   $('btn-log').onclick=openLog;
   $('btn-rp-gen').onclick=genFacReport;
