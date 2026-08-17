@@ -5266,14 +5266,17 @@ function taRowDiffs(row,offering,crosslisted){
   }
 
   // A room counts as matched if the report's location shows up anywhere in
-  // the schedule's room field — the field can carry more than one room — and
+  // the schedule's room field — the field can carry more than one room —
   // ARRNGD (PSU's "no fixed room" code) is treated as equivalent to the
-  // schedule recording no room at all.
+  // schedule recording no room at all, and WEB is treated as equivalent to
+  // any of the schedule's online-room spellings.
   const repRoom=row.meet1?row.meet1.location:'';
   const dbRoom=[offering.roomed,offering.roomNumber].filter(Boolean).join(' ');
   const dbNoRoom=!dbRoom.trim()||/^no\s*room$/i.test(dbRoom.trim());
   const repArranged=/^ARRNGD$/i.test(repRoom.trim());
-  const roomOk=(repArranged&&dbNoRoom)||(!repRoom&&!dbRoom)||
+  const dbOnline=/^(psu\s*online|ohsu\s*online|online)$/i.test(dbRoom.trim());
+  const repWeb=/^WEB$/i.test(repRoom.trim());
+  const roomOk=(repArranged&&dbNoRoom)||(repWeb&&dbOnline)||(!repRoom&&!dbRoom)||
     (repRoom&&dbRoom&&dbRoom.toUpperCase().includes(repRoom.toUpperCase()));
   if((repRoom||dbRoom)&&!roomOk)
     push('Room',repRoom||'—',dbRoom||'—');
