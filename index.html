@@ -277,6 +277,12 @@ tbody tr.deeplink td:first-child{box-shadow:inset 3px 0 0 var(--teal)}
 /* ═══ TERM DRAFT BUILDER ════════════════════════════════════════ */
 .tdb-lbl{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--dgray);font-weight:600}
 .tdb-lbl select{font-size:13px;font-weight:400;color:var(--text)}
+.rep-subnav{display:flex;gap:6px;padding:10px 20px;border-bottom:1px solid var(--mgray);background:var(--surface);flex:0 0 auto}
+.rep-sub-btn{border:1px solid var(--mgray);background:var(--lgray);color:var(--dgray);font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer}
+.rep-sub-btn.active{background:var(--navytx);color:#fff;border-color:var(--navytx)}
+.rep-sub{display:none;flex:1;overflow:hidden;flex-direction:column}
+.rep-sub.active{display:flex}
+
 .tdb-scroll{flex:1;overflow:auto;background:var(--lgray)}
 .tdb-wrap{max-width:1180px;margin:0 auto;padding:20px 20px 60px;display:flex;flex-direction:column;gap:18px}
 .tdb-card{background:var(--surface);border:1px solid var(--mgray);border-radius:8px;padding:18px 20px}
@@ -398,7 +404,7 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
     <button data-view="chtool"      id="nav-chtool"      class="auth-only">📋 CHTool</button>
     <button data-view="catalog"     id="nav-catalog">📚 Catalog</button>
     <button data-view="instructors" id="nav-instructors" class="auth-only">👤 Instructors</button>
-    <button data-view="termdraft"   id="nav-termdraft"   class="admin-only admin-strict" style="display:none">🗂 Term Draft</button>
+    <button data-view="reporting"   id="nav-reporting"   class="admin-only admin-strict" style="display:none">🗂 Reporting</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
     <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
     <button id="btn-terms" class="admin-only admin-strict" style="display:none">🗓 Terms</button>
@@ -506,8 +512,15 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
       <div class="crs-scroll" id="crs-scroll"><div class="crs-wrap" id="crs-body"></div></div>
     </div>
 
+    <!-- REPORTING (Term Draft + Term Audit) -->
+    <div class="view" id="view-reporting">
+      <div class="rep-subnav">
+        <button class="rep-sub-btn active" data-sub="termdraft" id="repsub-btn-termdraft">🗂 Term Draft</button>
+        <button class="rep-sub-btn" data-sub="termaudit" id="repsub-btn-termaudit">🔍 Term Audit</button>
+      </div>
+
     <!-- TERM DRAFT BUILDER -->
-    <div class="view" id="view-termdraft">
+    <div class="rep-sub active" id="repsub-termdraft">
       <div class="toolbar">
         <label class="tdb-lbl">Target term (being drafted)
           <select id="tdb-target-term"><option value="">— pick a term —</option></select>
@@ -582,6 +595,72 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
 
         </div>
       </div>
+    </div>
+
+    <!-- TERM AUDIT -->
+    <div class="rep-sub" id="repsub-termaudit">
+      <div class="toolbar">
+        <label class="tdb-lbl">Term being audited
+          <select id="ta-target-term"><option value="">— pick a term —</option></select>
+        </label>
+        <div class="tb-sp"></div>
+        <span class="tb-hint">Read-only — compares the report against the schedule, writes nothing</span>
+      </div>
+
+      <div class="tdb-scroll">
+        <div class="tdb-wrap">
+
+          <section class="tdb-card">
+            <h3>1 · Load the PSU Course List with Enrollments report</h3>
+            <p class="tdb-sub">The "1 Line Per CRN" tab of PSU's Cognos export, exactly as downloaded. Only HSMP, PE, PHE, PUBH and their SOPH crosslist rows are audited — everything else in the file is ignored.</p>
+            <div class="tdb-drop" id="ta-report-dropzone">
+              <strong>Drop the Course List .xlsx here, or click to browse</strong>
+              <span>Sheet name containing "1 Line Per CRN"</span>
+              <input type="file" id="ta-report-file-input" accept=".xlsx">
+            </div>
+            <div id="ta-report-file-info"></div>
+          </section>
+
+          <section id="ta-stats-row" class="tdb-stats" style="display:none"></section>
+
+          <section class="tdb-card" id="ta-diff-card" style="display:none">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+              <div>
+                <h3>2 · Discrepancies</h3>
+                <p class="tdb-sub">Matched by CRN against the schedule for the selected term. Only fields that actually differ are shown.</p>
+              </div>
+              <button class="btn btn-s btn-sm" id="ta-export-btn">⭳ Export CSV</button>
+            </div>
+            <div class="table-wrap tdb-pair-wrap">
+              <table id="ta-diff-tbl">
+                <thead><tr>
+                  <th>Course</th>
+                  <th>CRN</th>
+                  <th>Field</th>
+                  <th>Report says</th>
+                  <th>Schedule says</th>
+                </tr></thead>
+                <tbody id="ta-diff-tb"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="tdb-card" id="ta-unmatched-report-card" style="display:none">
+            <h3>3 · In the report, not in the schedule</h3>
+            <p class="tdb-sub">These CRNs didn't match any offering for this term — a new section, a changed CRN, or something to pair by hand.</p>
+            <div id="ta-unmatched-report-list"></div>
+          </section>
+
+          <section class="tdb-card" id="ta-unmatched-db-card" style="display:none">
+            <h3>4 · In the schedule, not in the report</h3>
+            <p class="tdb-sub">These offerings are in scope for this term but no matching CRN showed up in the report — cancelled, not yet built in Banner, or missing a CRN in the schedule.</p>
+            <div id="ta-unmatched-db-list"></div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+
     </div>
 
   </main>
@@ -1259,9 +1338,10 @@ function switchView(name){
   // Hard guard, not just a hidden nav button: CHTool and Instructors are
   // unreachable while signed out, however the call arrives.
   if(!signedIn&&(name==='chtool'||name==='instructors'))name='schedule';
-  // Term Draft is admin-only. `isAdmin` is false for PDs and viewers alike, so
-  // this covers both — the hidden nav button is presentation, this is the gate.
-  if(name==='termdraft'&&!(signedIn&&isAdmin))name='schedule';
+  // Reporting (Term Draft + Term Audit) is admin-only. `isAdmin` is false for
+  // PDs and viewers alike, so this covers both — the hidden nav button is
+  // presentation, this is the gate.
+  if(name==='reporting'&&!(signedIn&&isAdmin))name='schedule';
   // Leaving a course page by clicking a tab: strip the param so a refresh
   // doesn't drop the person back onto the course they just left.
   const _u=new URL(window.location);
@@ -1276,7 +1356,7 @@ function switchView(name){
   if(name==='chtool')      renderCht();
   if(name==='catalog')     renderCat();
   if(name==='instructors') renderInst();
-  if(name==='termdraft')   renderTdb();
+  if(name==='reporting')   renderReporting();
 }
 
 /* ─── SCHEDULE ──────────────────────────────────────────────── */
@@ -3882,10 +3962,11 @@ function tdbParseFullName(fullName,fallbackPrefix,fallbackNumber){
   if(sect&&/^[A-Za-z]+$/.test(sect)&&TDB_SECT_SUFFIX.has(sect.toUpperCase())){secMark=sect.toUpperCase();sect='';}
   return {prefix:pre,number:num+(suf||''),number2:num2?num2+(suf2||''):'',secMark,sectIdx:sect||''};
 }
-function tdbTargetOfferings(){
-  if(!DB||!DB.offerings||!TDB.targetTerm)return [];
+function tdbTargetOfferings(term){
+  term=term||TDB.targetTerm;
+  if(!DB||!DB.offerings||!term)return [];
   const byId={}; (DB.courses||[]).forEach(c=>{byId[c.id]=c;});
-  return DB.offerings.filter(o=>o.term===TDB.targetTerm).map(o=>{
+  return DB.offerings.filter(o=>o.term===term).map(o=>{
     const c=byId[o.courseId]||{};
     const parsed=tdbParseFullName(o.fullName,o.prefix,o.courseNumber);
     return Object.assign({},o,{
@@ -4894,6 +4975,24 @@ function tdbSuggestAll(offerings){
     else if(tdbCandidates(g,offerings).length===0)TDB.pairings[g.key]='DELETE';
   });
 }
+/* ── Reporting shell (Term Draft + Term Audit sub-tabs) ──────── */
+let repActiveSub='termdraft';
+function switchReportingSub(name){
+  repActiveSub=name;
+  document.querySelectorAll('.rep-sub').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.rep-sub-btn').forEach(b=>b.classList.remove('active'));
+  $('repsub-'+name).classList.add('active');
+  $('repsub-btn-'+name).classList.add('active');
+  renderReporting();
+}
+function renderReporting(){
+  if(repActiveSub==='termaudit')renderTermAudit(); else renderTdb();
+}
+function wireReportingEvents(){
+  document.querySelectorAll('.rep-sub-btn').forEach(b=>
+    b.addEventListener('click',()=>switchReportingSub(b.dataset.sub)));
+}
+
 function renderTdb(){
   tdbPopulateTerms();
   if(TDB.draftFile)tdbRecompute(); else tdbRenderAll();
@@ -4948,11 +5047,381 @@ function wireTdbEvents(){
   $('tdb-generate-btn').addEventListener('click',tdbGenerateDraft);
 }
 
+/* ═══ TERM AUDIT ═══════════════════════════════════════════════
+   Compares PSU's live "Course List with Enrollments" Cognos export
+   against the schedule for a term. Unlike the Draft template, this
+   report carries real CRNs, so matching is exact (crn_psu / crn_ohsu)
+   rather than the fuzzy course-number/cap-total guessing TDB needs for
+   the rolled-forward Draft. Purely read-only — never writes anything.
+   Scope is fixed to the PSU term-audit subjects; not user-configurable
+   like TDB's scope card, since the audit is always the same four
+   subjects plus their SOPH crosslist shells. */
+const TA_PSU_SUBJECTS=new Set(['HSMP','PE','PHE','PUBH']);
+const TA = {
+  targetTerm:'',
+  reportFile:null,     // {rows, name, sheetName}
+  results:null,
+  termsPopulated:false
+};
+
+const TA_REQUIRED_HEADERS=['Term','Subject','Course','Sec','CRN','Title','Sched Type',
+  'Primary Instructor Last Name','Primary Instructor First Name',
+  'Instructor 2 Last Name','Instructor 2 First Name','Crosslist ID',
+  'Min Credits','Max Credits','Auth Size',
+  'Start Date 1','End Date 1','Time 1','Location 1','Instruct Method 1','Instruct Method Desc 1'];
+
+/* ── parsing ─────────────────────────────────────────────────── */
+function taFindHeaderRow(ws,range){
+  const top=Math.min(range.s.r+6,range.e.r);
+  for(let r=range.s.r;r<=top;r++){
+    const labels=new Set();
+    for(let c=range.s.c;c<=range.e.c;c++){
+      const cell=ws[XLSX.utils.encode_cell({r,c})];
+      const v=cell?String(cell.v||'').trim():'';
+      if(v)labels.add(v);
+    }
+    if(labels.has('CRN')&&labels.has('Subject')&&labels.has('Term'))return r;
+  }
+  return -1;
+}
+function taParseReport(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+        const sheetName=wb.SheetNames.find(n=>/1\s*line\s*per\s*crn/i.test(n))||wb.SheetNames[0];
+        const ws=wb.Sheets[sheetName];
+        if(!ws||!ws['!ref']){reject(new Error('That sheet appears to be empty.'));return;}
+        const range=XLSX.utils.decode_range(ws['!ref']);
+        const hr=taFindHeaderRow(ws,range);
+        if(hr<0){reject(new Error(`Couldn't find a header row with Term/Subject/CRN columns in "${sheetName}".`));return;}
+        const colIdx={};
+        for(let c=range.s.c;c<=range.e.c;c++){
+          const cell=ws[XLSX.utils.encode_cell({r:hr,c})];
+          const v=cell?String(cell.v||'').trim():'';
+          if(v&&!(v in colIdx))colIdx[v]=c;
+        }
+        const missing=TA_REQUIRED_HEADERS.filter(h=>!(h in colIdx));
+        if(missing.length){reject(new Error(`This file is missing expected columns: ${missing.join(', ')}`));return;}
+        const get=(r,name)=>{
+          const c=colIdx[name]; if(c===undefined)return null;
+          const cell=ws[XLSX.utils.encode_cell({r,c})];
+          return cell?cell.v:null;
+        };
+        const rows=[];
+        for(let r=hr+1;r<=range.e.r;r++){
+          const crn=tdbNorm(get(r,'CRN'));
+          const subj=tdbNorm(get(r,'Subject')).toUpperCase();
+          if(!crn&&!subj)continue;   // blank row
+          const meetings=[];
+          for(let m=1;m<=10;m++){
+            const loc=tdbNorm(get(r,`Location ${m}`)), tm=tdbNorm(get(r,`Time ${m}`)),
+                  meth=tdbNorm(get(r,`Instruct Method ${m}`)), methDesc=tdbNorm(get(r,`Instruct Method Desc ${m}`));
+            if(!loc&&!tm&&!meth)continue;
+            meetings.push({time:tm,location:loc,method:meth,methodDesc:methDesc});
+          }
+          rows.push({
+            term:tdbNorm(get(r,'Term')), subj, crse:tdbNorm(get(r,'Course')), sect:tdbNorm(get(r,'Sec')),
+            crn, title:tdbNorm(get(r,'Title')), schedType:tdbNorm(get(r,'Sched Type')),
+            i1Last:tdbNorm(get(r,'Primary Instructor Last Name')), i1First:tdbNorm(get(r,'Primary Instructor First Name')),
+            i2Last:tdbNorm(get(r,'Instructor 2 Last Name')), i2First:tdbNorm(get(r,'Instructor 2 First Name')),
+            xlst:tdbNorm(get(r,'Crosslist ID')),
+            minCredits:tdbNum(get(r,'Min Credits')), maxCredits:tdbNum(get(r,'Max Credits')),
+            authSize:tdbNum(get(r,'Auth Size')), crosslistMax:tdbNum(get(r,'Crosslist Max')),
+            meet1:meetings[0]||null, extraMeetings:meetings.slice(1)
+          });
+        }
+        resolve({rows,name:file.name,sheetName});
+      }catch(err){reject(err);}
+    };
+    reader.onerror=()=>reject(new Error('Could not read the file.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/* ── matching ────────────────────────────────────────────────── */
+function taBuildOfferingIndex(offerings){
+  const byPsu=new Map(), byOhsu=new Map();
+  offerings.forEach(o=>{
+    const p=tdbNorm(o.crnPsu), h=tdbNorm(o.crnOhsu);
+    if(p)byPsu.set(p,o);
+    if(h)byOhsu.set(h,o);
+  });
+  return {byPsu,byOhsu};
+}
+function taRowRef(row){
+  if(row.subj==='SOPH')return tdbTitleRef(row.title);
+  return {prefix:row.subj,number:row.crse};
+}
+function taFallbackMatch(row,offerings){
+  const ref=taRowRef(row);
+  if(!ref)return null;
+  const cands=offerings.filter(o=>(o.prefix||'').toUpperCase()===ref.prefix&&
+    (tdbNormKeyPart(o.courseNumber)===tdbNormKeyPart(ref.number)||
+     tdbNormKeyPart(o.number2||'')===tdbNormKeyPart(ref.number)));
+  return cands.length===1?cands[0]:null;
+}
+/* CRN match first; only fall back to course-number matching (and only when
+   it resolves to exactly one candidate) so a stale/mistyped CRN in either
+   system doesn't hide a real pairing. */
+function taMatchRow(row,offerings,idx){
+  const exact=row.subj==='SOPH'?idx.byOhsu.get(row.crn):idx.byPsu.get(row.crn);
+  if(exact)return {offering:exact,crnMismatch:false};
+  const fb=taFallbackMatch(row,offerings);
+  return fb?{offering:fb,crnMismatch:true}:{offering:null,crnMismatch:false};
+}
+
+/* ── field comparisons ──────────────────────────────────────── */
+function taInstrDiff(reportLast,reportFirst,dbDisplayName){
+  const rLast=tdbNorm(reportLast), rFirst=tdbNorm(reportFirst);
+  const has=rLast||rFirst;
+  const dbName=tdbNorm(dbDisplayName);
+  if(!has&&!dbName)return null;
+  const reportStr=has?`${rLast}, ${rFirst}`.replace(/^, /,'').replace(/, $/,''):'—';
+  if(!has||!dbName)return {report:reportStr,db:dbName||'—'};
+  const parts=tdbSplitDisplayName(dbName);
+  const match=parts&&parts.last.toLowerCase()===rLast.toLowerCase()&&
+    parts.initial&&rFirst&&parts.initial[0].toLowerCase()===rFirst[0].toLowerCase();
+  return match?null:{report:reportStr,db:dbName};
+}
+const TA_MEET_RE=/^([A-Za-z]{1,2})\s+(\d{1,4})\s*-\s*(\d{1,4})\s*$/;
+function taParseMeetingTime(str){
+  const m=tdbNorm(str).match(TA_MEET_RE);
+  if(!m)return null;
+  const day=TDB_DAY_TOKENS[m[1].toUpperCase()];
+  if(!day)return null;
+  const pad=x=>x.padStart(4,'0');
+  return {day,range:`${pad(m[2])}-${pad(m[3])}`};
+}
+function taMeetingSummary(row){
+  const all=[row.meet1,...row.extraMeetings].filter(Boolean);
+  if(!all.length)return {str:''};
+  const parsed=all.map(m=>taParseMeetingTime(m.time)).filter(Boolean);
+  if(parsed.length!==all.length)return {irregular:true};
+  const ranges=new Set(parsed.map(p=>p.range));
+  if(ranges.size>1)return {irregular:true};
+  const days=[...new Set(parsed.map(p=>p.day))].sort((a,b)=>tdbDayOrder.indexOf(a)-tdbDayOrder.indexOf(b)).join('');
+  return {str:`${days} ${[...ranges][0]}`};
+}
+function taExpectedCap(row,offering,crosslisted){
+  const isSoph=row.subj==='SOPH';
+  const slot=tdbSlotOf(row,offering);
+  const hasSplit=[offering.ohsuCap1,offering.ohsuCap2,offering.psuCap1,offering.psuCap2]
+    .some(v=>tdbNorm(v)!=='');
+  if(crosslisted){
+    if(hasSplit)return isSoph?tdbCap(slot===1?offering.ohsuCap1:offering.ohsuCap2)
+                              :tdbCap(slot===1?offering.psuCap1:offering.psuCap2);
+    if(!offering.number2){
+      const grad=tdbIsGradNumber(offering.courseNumber);
+      return isSoph?(grad?tdbCap(offering.totalCap):0):(grad?0:tdbCap(offering.totalCap));
+    }
+    return null;   // no split recorded and nothing to infer it from — skip, don't guess
+  }
+  return tdbCap(offering.totalCap);
+}
+
+/* ── per-row diff ────────────────────────────────────────────── */
+function taRowDiffs(row,offering,crosslisted){
+  const diffs=[];
+  const push=(field,report,db)=>diffs.push({field,report,db});
+
+  if(tdbNorm(row.sect)&&tdbNorm(offering.section)&&
+     tdbNormKeyPart(row.sect)!==tdbNormKeyPart(offering.section))
+    push('Section',row.sect,offering.section);
+
+  if(row.minCredits!=null&&row.maxCredits!=null){
+    const range=tdbCreditRange(offering.creditsRaw);
+    const reportStr=row.minCredits===row.maxCredits?String(row.minCredits):`${row.minCredits}-${row.maxCredits}`;
+    if(range){
+      if(row.minCredits<range[0]||row.maxCredits>range[range.length-1]||row.minCredits>row.maxCredits)
+        push('Credits',reportStr,offering.creditsRaw);
+    }else{
+      const fixed=Number(offering.creditsRaw);
+      if(!isNaN(fixed)&&fixed!==''&&(row.minCredits!==fixed||row.maxCredits!==fixed))
+        push('Credits',reportStr,String(offering.creditsRaw));
+    }
+  }
+
+  const d1=taInstrDiff(row.i1Last,row.i1First,offering.instructor1);
+  if(d1)push('Instructor 1',d1.report,d1.db);
+  const d2=taInstrDiff(row.i2Last,row.i2First,offering.instructor2);
+  if(d2)push('Instructor 2',d2.report,d2.db);
+
+  const expMod=tdbMapModality(offering.modality);
+  const repMeth=row.meet1?row.meet1.methodDesc:'';
+  if((expMod||repMeth)&&tdbIMKey(expMod)!==tdbIMKey(repMeth))
+    push('Modality',repMeth||'—',expMod||'—');
+
+  const meetSum=taMeetingSummary(row);
+  if(!meetSum.irregular){
+    const expMeet=row.extraMeetings.length===0?tdbMeetingString(offering):'';
+    if((meetSum.str||expMeet)&&meetSum.str!==expMeet&&!(!meetSum.str&&tdbIsArranged(offering)))
+      push('Meeting time',meetSum.str||'—',expMeet||'—');
+  }
+
+  const repRoom=row.meet1?row.meet1.location:'';
+  const dbRoom=[offering.roomed,offering.roomNumber].filter(Boolean).join(' ');
+  if((repRoom||dbRoom)&&repRoom.toUpperCase()!==dbRoom.toUpperCase())
+    push('Room',repRoom||'—',dbRoom||'—');
+
+  const expCap=taExpectedCap(row,offering,crosslisted);
+  if(expCap!==null&&row.authSize!=null&&row.authSize!==expCap)
+    push('Section cap',String(row.authSize),String(expCap));
+
+  return diffs;
+}
+
+/* ── group-level (crosslist) check ──────────────────────────── */
+function taGroupRows(rows){
+  const byXlst=new Map(), singles=[];
+  rows.forEach(row=>{
+    if(row.xlst){
+      if(!byXlst.has(row.xlst))byXlst.set(row.xlst,{key:row.xlst,rows:[]});
+      byXlst.get(row.xlst).rows.push(row);
+    }else singles.push({key:'crn:'+row.crn,rows:[row]});
+  });
+  return [...byXlst.values(),...singles];
+}
+
+/* ── main compute ────────────────────────────────────────────── */
+function taRecompute(){
+  if(!TA.reportFile||!TA.targetTerm){TA.results=null;taRenderAll();return;}
+  const offerings=tdbTargetOfferings(TA.targetTerm);
+  const idx=taBuildOfferingIndex(offerings);
+  const rows=TA.reportFile.rows.filter(r=>TA_PSU_SUBJECTS.has(r.subj)||r.subj==='SOPH');
+  const groups=taGroupRows(rows);
+
+  const diffRows=[];       // {courseLabel, crn, field, report, db}
+  const unmatchedReport=[];
+  const matchedOfferingIds=new Set();
+
+  groups.forEach(group=>{
+    const crosslisted=group.rows.some(r=>r.subj==='SOPH')&&group.rows.some(r=>r.subj!=='SOPH');
+    group.rows.forEach(row=>{
+      const {offering,crnMismatch}=taMatchRow(row,offerings,idx);
+      const num=row.crse+(row.sect?`-${row.sect}`:'');
+      const label=`${row.subj} ${num}`;
+      if(!offering){
+        unmatchedReport.push({label,crn:row.crn,title:row.title,instr:`${row.i1Last}, ${row.i1First}`.replace(/^, |, $/,'')});
+        return;
+      }
+      matchedOfferingIds.add(offering._uuid);
+      const courseLabel=`${offering.prefix} ${offering.courseNumber}${offering.section?'-'+offering.section:''}`;
+      if(crnMismatch){
+        const expected=row.subj==='SOPH'?offering.crnOhsu:offering.crnPsu;
+        diffRows.push({courseLabel,crn:row.crn,field:'CRN',report:row.crn,db:expected||'—'});
+      }
+      taRowDiffs(row,offering,crosslisted).forEach(d=>
+        diffRows.push({courseLabel,crn:row.crn,field:d.field,report:d.report,db:d.db}));
+    });
+  });
+
+  const unmatchedDb=offerings.filter(o=>
+    TA_PSU_SUBJECTS.has((o.prefix||'').toUpperCase())&&!matchedOfferingIds.has(o._uuid));
+
+  TA.results={diffRows,unmatchedReport,unmatchedDb,
+    groupCount:groups.length,rowCount:rows.length,offeringCount:offerings.length};
+  taRenderAll();
+}
+
+/* ── rendering ───────────────────────────────────────────────── */
+function taPopulateTerms(){
+  if(TA.termsPopulated||!TERM_ROWS||!TERM_ROWS.length)return;
+  const opts=TERM_ROWS.map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
+  $('ta-target-term').insertAdjacentHTML('beforeend',opts);
+  TA.termsPopulated=true;
+}
+function taRenderAll(){
+  const stats=$('ta-stats-row'), diffCard=$('ta-diff-card'), urCard=$('ta-unmatched-report-card'), udCard=$('ta-unmatched-db-card');
+  if(!TA.results){
+    [stats,diffCard,urCard,udCard].forEach(el=>el.style.display='none');
+    return;
+  }
+  const {diffRows,unmatchedReport,unmatchedDb,rowCount,offeringCount}=TA.results;
+  const affected=new Set(diffRows.map(d=>d.courseLabel+'|'+d.crn)).size;
+
+  stats.style.display='';
+  stats.innerHTML=`
+    <div class="tdb-stat ${rowCount?'':'warn'}"><div class="n">${rowCount}</div><div class="l">Report rows in scope</div></div>
+    <div class="tdb-stat"><div class="n">${offeringCount}</div><div class="l">Schedule offerings in scope</div></div>
+    <div class="tdb-stat ${diffRows.length?'warn':''}"><div class="n">${diffRows.length}</div><div class="l">Discrepancies (${affected} sections)</div></div>
+    <div class="tdb-stat ${unmatchedReport.length?'warn':''}"><div class="n">${unmatchedReport.length}</div><div class="l">Report rows unmatched</div></div>
+    <div class="tdb-stat ${unmatchedDb.length?'warn':''}"><div class="n">${unmatchedDb.length}</div><div class="l">Offerings unmatched</div></div>`;
+
+  diffCard.style.display='';
+  $('ta-diff-tb').innerHTML=diffRows.length
+    ? diffRows.map(d=>`<tr><td>${esc(d.courseLabel)}</td><td>${esc(d.crn)}</td><td>${esc(d.field)}</td>`+
+        `<td>${esc(d.report)}</td><td>${esc(d.db)}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="empty-note">No discrepancies on the matched sections.</td></tr>`;
+
+  urCard.style.display=unmatchedReport.length?'':'none';
+  $('ta-unmatched-report-list').innerHTML=unmatchedReport.map(u=>
+    `<div class="tdb-chip"><span class="badge">${esc(u.label)}</span><span>CRN ${esc(u.crn)} — ${esc(u.title)}</span><span class="meta">${esc(u.instr)}</span></div>`
+  ).join('')||'';
+
+  udCard.style.display=unmatchedDb.length?'':'none';
+  $('ta-unmatched-db-list').innerHTML=unmatchedDb.map(o=>
+    `<div class="tdb-chip"><span class="badge">${esc(o.prefix+' '+o.courseNumber+(o.section?'-'+o.section:''))}</span>`+
+    `<span>${esc([o.instructor1,o.instructor2].filter(Boolean).join(' / ')||'TBD')}</span>`+
+    `<span class="meta">CRN ${esc(o.crnPsu||'—')}</span></div>`
+  ).join('')||'';
+}
+function renderTermAudit(){
+  taPopulateTerms();
+  taRenderAll();
+}
+function taExportCsv(){
+  if(!TA.results||!TA.results.diffRows.length)return;
+  const rows=[['Course','CRN','Field','Report says','Schedule says'],
+    ...TA.results.diffRows.map(d=>[d.courseLabel,d.crn,d.field,d.report,d.db])];
+  dlCSV(rows,`Term_Audit_${TA.targetTerm||'term'}.csv`);
+}
+function wireTaEvents(){
+  $('ta-target-term').addEventListener('change',e=>{
+    TA.targetTerm=e.target.value;
+    taRecompute();
+  });
+  $('ta-export-btn').addEventListener('click',taExportCsv);
+
+  const dz=$('ta-report-dropzone'), fi=$('ta-report-file-input');
+  dz.addEventListener('click',()=>fi.click());
+  const handleFile=async file=>{
+    if(!file||!/\.xlsx$/i.test(file.name))return;
+    const info=$('ta-report-file-info');
+    info.innerHTML=`<span class="empty-note">Reading ${esc(file.name)}…</span>`;
+    try{
+      TA.reportFile=await taParseReport(file);
+      info.innerHTML=`<div class="tdb-chip"><span class="badge">REPORT</span><span>${esc(file.name)}</span><span class="meta">${TA.reportFile.rows.length} rows</span></div>`;
+      // Convenience: auto-pick the term if the report names one we know and
+      // nothing has been chosen yet — the person can still change it.
+      if(!TA.targetTerm&&TA.reportFile.rows.length){
+        const reportTerm=TA.reportFile.rows[0].term;
+        if(reportTerm&&TERM_ROWS.some(t=>t.code===reportTerm)){
+          TA.targetTerm=reportTerm;
+          $('ta-target-term').value=reportTerm;
+        }
+      }
+      taRecompute();
+    }catch(err){
+      TA.reportFile=null;
+      info.innerHTML=`<div class="tdb-sum-review">${esc(err.message)}</div>`;
+      TA.results=null; taRenderAll();
+    }
+  };
+  fi.addEventListener('change',e=>handleFile(e.target.files[0]));
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>handleFile(e.dataTransfer.files[0]));
+}
+
 /* ─── BOOTSTRAP ─────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded',async()=>{
   console.log('%c[SPH scheduling] build 2026-08-03a — term draft builder: template-only diff','color:#0a7');
   wireEvents();
   wireTdbEvents();
+  wireReportingEvents();
+  wireTaEvents();
   // Install the handler before the first client is built; initSupabase() now
   // owns (re)registration, so this survives every subsequent rebuild.
   onAuthChange=(_evt,_session)=>{refreshAdmin();};
