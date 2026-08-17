@@ -88,7 +88,35 @@ nav button{padding:0 18px;height:44px;border:none;background:none;font-size:13px
 nav button:hover{color:var(--teal);background:var(--lgray)}
 nav button.active{color:var(--navytx);border-bottom-color:var(--teal);font-weight:600}
 #btn-admin-toggle{margin-left:auto;font-size:11px;color:var(--dgray);padding:0 14px}
-#btn-lists{font-size:11px;color:var(--dgray);padding:0 14px}
+
+/* ═══ ADMIN TOOLS DROPDOWN ═══════════════════════════════════
+   Nests Lists / Terms / Lock Down under one nav entry instead of three
+   flat buttons. Visibility of the trigger and each row still follows
+   the existing .admin-only (PD+Admin) / .admin-strict (Admin only)
+   rules — this is purely a layout change, not a permissions change. */
+.nav-dd{position:relative;display:inline-block}
+#btn-admin-tools{font-size:11px;color:var(--dgray);padding:0 14px}
+.nav-dd-menu{display:none;position:absolute;top:100%;left:0;min-width:170px;background:var(--surface);
+  border:1px solid var(--mgray);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.15);z-index:40;
+  padding:4px;flex-direction:column}
+.nav-dd-menu.open{display:flex}
+.nav-dd-menu button{height:auto;padding:8px 10px;text-align:left;border-radius:4px;white-space:nowrap;
+  border-bottom:none;font-size:13px;color:var(--text)}
+.nav-dd-menu button:hover{background:var(--lgray);color:var(--teal)}
+.dd-locked-hint{display:none;padding:8px 10px;font-size:12px;color:var(--dgray);font-style:italic}
+
+/* ═══ LOCKDOWN BANNER ════════════════════════════════════════
+   Shown to every visitor — signed out, viewer, PD, admin — while the
+   apps are frozen. Writes are actually blocked at the RLS layer; this
+   is the explanation, not the enforcement. */
+#lockdown-banner{display:none;background:#7C2D12;color:#FEE2E2;padding:9px 16px;font-size:13px;
+  align-items:center;gap:10px;flex-shrink:0;border-bottom:1px solid #991B1B;line-height:1.4}
+body.is-locked #lockdown-banner{display:flex}
+body.is-locked .admin-only:not(#btn-admin-tools),
+body.is-locked .admin-strict:not(#btn-lockdown){display:none!important}
+body.is-locked .dd-locked-hint{display:block}
+body.is-locked.is-full-admin .dd-locked-hint{display:none}
+#btn-lockdown{color:#B91C1C;font-weight:600}
 
 /* ═══ VIEWS ══════════════════════════════════════════════════ */
 main{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -386,6 +414,7 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
 <div id="ls"><div class="spin"></div><h2>SPH Course Scheduling</h2><p id="lm">Loading data…</p></div>
 
 <div id="app" style="display:none">
+  <div id="lockdown-banner"></div>
   <header>
     <div><h1>SPH Course Scheduling</h1><div class="sub" id="hdr-sub">Academic Year 2026–27</div></div>
     <select id="ay-sel" style="display:none;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:white;margin-left:14px"></select>
@@ -406,8 +435,15 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
     <button data-view="instructors" id="nav-instructors" class="auth-only">👤 Instructors</button>
     <button data-view="reporting"   id="nav-reporting"   class="admin-only admin-strict" style="display:none">🗂 Reporting</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
-    <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
-    <button id="btn-terms" class="admin-only admin-strict" style="display:none">🗓 Terms</button>
+    <div class="nav-dd" id="admin-tools-dd">
+      <button id="btn-admin-tools" class="admin-only" style="display:none">🛠 Admin Tools ▾</button>
+      <div class="nav-dd-menu" id="admin-tools-menu">
+        <button id="btn-lists" class="admin-only" style="display:none">⚙ Lists</button>
+        <button id="btn-terms" class="admin-only admin-strict" style="display:none">🗓 Terms</button>
+        <button id="btn-lockdown" class="admin-strict" style="display:none">🔒 Lock Down</button>
+        <div class="dd-locked-hint">🔒 Locked — no admin actions available</div>
+      </div>
+    </div>
   </nav>
   <main>
 
@@ -909,6 +945,28 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
   </div>
 </div>
 
+<!-- LOCK DOWN MODAL — Scheduling-Admin only. Freezes writes on BOTH apps
+     (RLS-enforced; this UI is just the trigger + status). -->
+<div class="mo" id="mo-lockdown">
+  <div class="modal med">
+    <div class="mhd"><h3>Lock Down</h3><button class="mx" data-close="mo-lockdown">×</button></div>
+    <div class="mb"><div class="fg">
+      <div class="full" id="ld2-status" style="font-size:13px;line-height:1.5"></div>
+      <div class="full">
+        <label>Message shown to users <span style="font-weight:400;color:var(--dgray)">(optional)</span></label>
+        <textarea id="ld2-msg" rows="3" placeholder="e.g. Migrating data, back by 3pm"></textarea>
+        <div class="fhint">Shown on the banner both apps display while locked. Leave blank for a generic message.</div>
+      </div>
+    </div></div>
+    <div class="mft">
+      <span id="ld2-msg-status" style="margin-right:auto;font-size:12px;line-height:1.4"></span>
+      <button class="btn btn-s" data-close="mo-lockdown">Close</button>
+      <button class="btn btn-p" id="btn-ld2-lock" style="background:var(--red);border-color:var(--red)">🔒 Lock Down Both Apps</button>
+      <button class="btn btn-p" id="btn-ld2-unlock" style="display:none">🔓 Unlock</button>
+    </div>
+  </div>
+</div>
+
 <!-- CHANGE REPORT MODAL -->
 <div class="mo" id="mo-report">
   <div class="modal med">
@@ -1052,6 +1110,11 @@ const GCOLS=['#2E75B6','#375623','#C55A11','#7B2C8C','#C00000','#1F6B75','#7F4F2
 /* ─── STATE ────────────────────────────────────────────────── */
 let DB={courses:[],instructors:[],offerings:[]};
 let isAdmin=false;
+/* LOCKDOWN. Read from the anon-readable app_lockdown singleton row on every
+   load/sync. The actual write block lives in RLS (is_locked(), see
+   add_lockdown_v1.sql) — LOCKED here only drives the banner and hides
+   write-triggering UI so people aren't left guessing why a save failed. */
+let LOCKED=false, LOCK_MSG='', LOCK_BY='', LOCK_AT=null;
 /* Four states now: signed-out < viewer < pd < admin.
    isAdmin  → full rights, including term management and Reset.
    isPD     → edits offerings in PD-editable terms, plus courses/instructors.
@@ -1159,15 +1222,23 @@ async function loadData(){
     return {data:all,error:null};
   };
 
-  const [cR,oR,mR,dR,lR]=await Promise.all([
+  const [cR,oR,mR,dR,lR,kR]=await Promise.all([
     fetchAll('courses'),
     fetchAll('offerings'),
     fetchAll('instructor_meta'),
     fetchAll('faculty_directory'),
-    fetchAll('app_lists')
+    fetchAll('app_lists'),
+    sb.from('app_lockdown').select('*').eq('id',1).maybeSingle()
   ]);
   for(const r of [cR,oR,mR,dR,lR]){
     if(r.error){setLM('');setSS('⚠ Load failed: '+r.error.message);throw r.error;}
+  }
+  // Lockdown state is best-effort: a fetch hiccup here shouldn't block the
+  // whole app from loading, it just means the banner may lag a refresh.
+  if(!kR.error&&kR.data){
+    LOCKED=!!kR.data.locked; LOCK_MSG=kR.data.message||''; LOCK_BY=kR.data.locked_by||''; LOCK_AT=kR.data.locked_at||null;
+  }else if(!kR.error){
+    LOCKED=false;
   }
   // Editable lists (Days, Program prefixes) — overrides keyed by list_key.
   const lists={};
@@ -1267,7 +1338,57 @@ async function loadData(){
   });
 
   DB={courses,instructors,offerings,lists};
+  renderLockBanner();
+  applyLockUI();
   setLM('');
+}
+
+/* ─── LOCKDOWN UI ───────────────────────────────────────────── */
+function renderLockBanner(){
+  const el=$('lockdown-banner');if(!el)return;
+  if(!LOCKED){el.innerHTML='';return;}
+  const who=LOCK_BY?esc(LOCK_BY):'an admin';
+  const when=LOCK_AT?new Date(LOCK_AT).toLocaleString():'';
+  const note=LOCK_MSG?': "'+esc(LOCK_MSG)+'"':'.';
+  el.innerHTML=`🔒 <b>Locked</b> — editing is paused by ${who}${when?' ('+when+')':''}${note} `+
+    `You can still view everything; saving will resume once it's lifted.`;
+}
+// Purely visual/UX layer — document.body.classList drives the CSS rules that
+// hide write-triggering controls while locked. Real enforcement is RLS.
+function applyLockUI(){
+  document.body.classList.toggle('is-locked',LOCKED);
+}
+function openLockdown(){
+  const st=$('ld2-status');
+  if(LOCKED){
+    const who=LOCK_BY?esc(LOCK_BY):'an admin';
+    const when=LOCK_AT?new Date(LOCK_AT).toLocaleString():'';
+    st.innerHTML=`Currently <b style="color:var(--red)">LOCKED</b> by ${who}${when?' at '+when:''}.`;
+    setv('ld2-msg',LOCK_MSG);
+    $('btn-ld2-lock').style.display='none';
+    $('btn-ld2-unlock').style.display='';
+  }else{
+    st.innerHTML='Currently <b style="color:var(--green,#16A34A)">unlocked</b> — both apps are editable per normal access rules.';
+    setv('ld2-msg','');
+    $('btn-ld2-lock').style.display='';
+    $('btn-ld2-unlock').style.display='none';
+  }
+  $('ld2-msg-status').textContent='';
+  openM('mo-lockdown');
+}
+async function setLockdown(locked){
+  const msg=val('ld2-msg').trim();
+  const payload={id:1,locked,message:msg||null,
+    locked_by:locked?(currentUserEmail||'admin'):LOCK_BY,
+    locked_at:locked?new Date().toISOString():LOCK_AT};
+  $('ld2-msg-status').textContent=locked?'Locking…':'Unlocking…';
+  const {error}=await sb.from('app_lockdown').upsert(payload);
+  if(error){$('ld2-msg-status').textContent='⚠ '+(error.message||'Failed');return;}
+  LOCKED=locked; LOCK_MSG=msg; LOCK_BY=payload.locked_by; LOCK_AT=payload.locked_at;
+  renderLockBanner(); applyLockUI();
+  closeM('mo-lockdown');
+  setSS(locked?'● Locked down':'● Unlocked');
+  renderAll(); renderActive();
 }
 
 const setSS=msg=>{const e=$('save-status');if(e)e.textContent=msg;};
@@ -1328,6 +1449,9 @@ function enableAdmin(pdOnly){
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='');
   document.querySelectorAll('thead th.admin-only').forEach(e=>e.style.display='');
   document.querySelectorAll('.admin-strict').forEach(e=>e.style.display=pdOnly?'none':'');
+  // Drives the lockdown CSS exemption — only a full Scheduling Admin keeps
+  // Admin Tools / Lock Down reachable while everything else is frozen.
+  document.body.classList.toggle('is-full-admin',!pdOnly);
   updateUndoBtn();
   setSS(pdOnly?'PD mode':'Admin mode');
 }
@@ -1336,6 +1460,7 @@ function disableAdmin(){
   $('admin-badge').classList.remove('on');
   document.querySelectorAll('.admin-only').forEach(e=>e.style.display='none');
   document.querySelectorAll('.admin-strict').forEach(e=>e.style.display='none');
+  document.body.classList.remove('is-full-admin');
   setSS('Read-only');
 }
 
@@ -1450,7 +1575,7 @@ function termRow(code){return TERM_ROWS.find(t=>t.code===code)||null;}
 /* Mirrors can_edit_term() in the database. The DB is the authority — this only
    decides whether to SHOW an edit control, so a stale answer here is a cosmetic
    bug, never a security hole. */
-const canEdit=()=>isAdmin||isPD;
+const canEdit=()=>(isAdmin||isPD)&&!LOCKED;
 function canEditTerm(code){
   if(isAdmin)return true;
   if(!isPD)return false;
@@ -2433,7 +2558,7 @@ function renderInst(){
     // isAdmin, not canEdit(): the roster is admin territory. A PD reads it and
     // assigns from it, but adding or reclassifying an instructor is a hiring
     // fact that admin establishes first. Matched by RLS on instructor_meta.
-    const eb=isAdmin?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
+    const eb=(isAdmin&&!LOCKED)?`<td><button class="btn btn-s btn-sm ei" data-id="${esc(i.id)}">Edit</button></td>`:'';
     const notUsed=!i.isPlaceholder&&!isTBD(i.displayName)&&!assigned.has(i.displayName);
     const flag=notUsed?' <span class="flag-warn" title="Not assigned to any offering on the Schedule">⚠</span>':'';
     h+=`<tr><td><strong>${esc(i.displayName)}</strong>${flag}</td><td>${esc(i.lastName)}</td><td>${esc(i.firstName)}</td>
@@ -3432,10 +3557,27 @@ function wireEvents(){
     if(canEdit())showCfm('Sign out?','Sign out and return to read-only view?',()=>signOut());
     else{const e=$('ab-email');if(e){e.focus();setSS('Sign in with the box in the header to enable admin');}}
   });
+  // Admin Tools dropdown (Lists / Terms / Lock Down)
+  $('btn-admin-tools').addEventListener('click',e=>{
+    e.stopPropagation();
+    $('admin-tools-menu').classList.toggle('open');
+  });
+  $('admin-tools-menu').addEventListener('click',e=>{
+    if(e.target.tagName==='BUTTON')$('admin-tools-menu').classList.remove('open');
+  });
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('#admin-tools-dd'))$('admin-tools-menu').classList.remove('open');
+  });
   $('btn-lists').addEventListener('click',openLists);
   $('ld-key').addEventListener('change',e=>loadListIntoEditor(e.target.value));
   $('btn-ld-save').addEventListener('click',saveListEdits);
   $('btn-ld-default').addEventListener('click',restoreListDefaults);
+  // Lock Down — Scheduling-Admin only trigger; freezes writes on both apps.
+  $('btn-lockdown').addEventListener('click',openLockdown);
+  $('btn-ld2-lock').addEventListener('click',()=>{
+    showCfm('Lock down both apps?','This blocks ALL writes — including yours — on both the scheduling and faculty apps until someone with Scheduling Admin access unlocks it. Continue?',()=>setLockdown(true));
+  });
+  $('btn-ld2-unlock').addEventListener('click',()=>setLockdown(false));
   // Schedule
   ['f-term','f-pfx','f-mod','f-level'].forEach(id=>$(id).addEventListener('change',renderSched));
   $('f-q').addEventListener('input',renderSched);

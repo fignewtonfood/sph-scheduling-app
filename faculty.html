@@ -88,6 +88,15 @@ body.is-admin .admin-only{display:inline-flex!important}
    (anon / unprovisioned) view — parallels admin-only, inverted. */
 body.is-public .signed-only{display:none!important}
 
+/* LOCKDOWN — set from the scheduling app's Admin Tools ▾ Lock Down control;
+   this app only reads app_lockdown and reflects it. Must come after the
+   body.is-admin rule above so it wins even for an admin viewer (equal
+   specificity, later wins) — matches "everyone blocked" including admins. */
+body.is-locked .admin-only{display:none!important}
+#lockdown-banner{display:none;background:#7C2D12;color:#FEE2E2;padding:9px 16px;font-size:13px;
+  align-items:center;gap:10px;flex-shrink:0;border-bottom:1px solid #991B1B;line-height:1.4}
+body.is-locked #lockdown-banner{display:flex}
+
 /* ═══ MAIN / VIEWS ══════════════════════════════════════════ */
 main{flex:1;overflow:auto;display:flex;flex-direction:column}
 .view{display:none;flex:1;flex-direction:column}
@@ -256,6 +265,7 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
 <div id="ls"><div class="spin"></div><h2>SPH Faculty</h2><p id="lm">Loading…</p></div>
 
 <div id="app" style="display:none">
+  <div id="lockdown-banner"></div>
   <header>
     <div><h1>SPH Faculty Directory</h1><div class="sub">OHSU-PSU School of Public Health</div></div>
     <div class="hsp"></div>
@@ -518,6 +528,9 @@ let RES={};                         // faculty id → [research row, …] ordere
 let AWD={};                         // faculty id → [award row, …] ordered
 let CEPH={};                        // faculty id → ceph_flag  (ALL tiers, incl. anon)
 let currentUserEmail=null;
+// Lockdown — read from app_lockdown on load; see loadData() and
+// renderLockBanner(). Set by the scheduling app's Lock Down control only.
+let LOCKED=false, LOCK_MSG='', LOCK_BY='', LOCK_AT=null;
 let lastViewedId=null;              // set on profile view; restores list position
 let eid=null;                       // faculty id being edited
 let pmId=null;                      // faculty id whose web profile is being edited
@@ -663,6 +676,28 @@ async function loadData(){
     return t?`${t.academic_year}|${String(t.sort_order).padStart(3,'0')}`:'~';
   };
   Object.values(TEACHING).forEach(list=>list.sort((a,b)=>rank(a).localeCompare(rank(b))));
+
+  // Lockdown — read-only here; the trigger lives in the scheduling app's
+  // Admin Tools ▾ Lock Down control (Scheduling-Admin only), and blocks both
+  // apps' writes via RLS. This just reflects that state on the banner and
+  // hides write UI. Best-effort: a fetch hiccup shouldn't block the load.
+  try{
+    const {data,error}=await sb.from('app_lockdown').select('*').eq('id',1).maybeSingle();
+    if(!error&&data){LOCKED=!!data.locked;LOCK_MSG=data.message||'';LOCK_BY=data.locked_by||'';LOCK_AT=data.locked_at||null;}
+    else if(!error){LOCKED=false;}
+  }catch(e){/* leave prior LOCKED state rather than fail the whole load */}
+  renderLockBanner();
+  document.body.classList.toggle('is-locked',LOCKED);
+}
+
+function renderLockBanner(){
+  const el=$('lockdown-banner');if(!el)return;
+  if(!LOCKED){el.innerHTML='';return;}
+  const who=LOCK_BY?esc(LOCK_BY):'an admin';
+  const when=LOCK_AT?new Date(LOCK_AT).toLocaleString():'';
+  const note=LOCK_MSG?': "'+esc(LOCK_MSG)+'"':'.';
+  el.innerHTML=`🔒 <b>Locked</b> — editing is paused by ${who}${when?' ('+when+')':''}${note} `+
+    `You can still view everything; saving will resume once it's lifted.`;
 }
 
 /* ─── FILTERS ──────────────────────────────────────────────── */
