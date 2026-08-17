@@ -5189,6 +5189,7 @@ function taInstrDiff(reportLast,reportFirst,dbDisplayName){
   const has=rLast||rFirst;
   const dbName=tdbNorm(dbDisplayName);
   if(!has&&!dbName)return null;
+  if(!has&&isTBD(dbName))return null;   // report blank ≡ a TBD placeholder (TBD P., TBD O., …)
   const reportStr=has?`${rLast}, ${rFirst}`.replace(/^, /,'').replace(/, $/,''):'—';
   if(!has||!dbName)return {report:reportStr,db:dbName||'—'};
   const parts=tdbSplitDisplayName(dbName);
@@ -5259,7 +5260,7 @@ function taRowDiffs(row,offering){
 
   const meetSum=taMeetingSummary(row);
   if(!meetSum.irregular){
-    const expMeet=row.extraMeetings.length===0?tdbMeetingString(offering):'';
+    const expMeet=tdbMeetingString(offering);
     if((meetSum.str||expMeet)&&meetSum.str!==expMeet&&!(!meetSum.str&&tdbIsArranged(offering)))
       push('Meeting time',meetSum.str||'—',expMeet||'—');
   }
