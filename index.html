@@ -5283,7 +5283,7 @@ function taRowDiffs(row,offering){
     if(!roomOk)push('Room',repRoom,dbRoom||'—');
   }
 
-  if(row.authSize!=null){
+  if(row.authSize!=null&&row.authSize!==0){
     const present=taCapCandidates(row,offering).filter(c=>tdbNorm(c.val)!=='');
     if(present.length&&!present.some(c=>tdbCap(c.val)===row.authSize)){
       const dbStr=present.map(c=>`${c.label} ${tdbCap(c.val)}`).join(', ');
