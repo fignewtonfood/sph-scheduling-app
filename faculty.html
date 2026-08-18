@@ -114,6 +114,7 @@ tbody tr.clickable{cursor:pointer}
 .chip{display:inline-block;background:var(--ltblue);color:var(--navytx);font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;margin:1px 3px 1px 0;white-space:nowrap}
 .chip.warn{background:var(--ltgold);color:var(--txgold)}
 .chip.role{background:var(--navytx);color:var(--surface)}
+.chip.review{background:var(--ltred);color:var(--red)}
 .rolechk{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--navytx);cursor:pointer}
 .rolechk input{cursor:pointer;margin:0}
 .roledet{margin-top:6px}
@@ -752,6 +753,19 @@ function fillFilters(){
    so this toggle only ever matters to signed-in users. */
 const isInactive=f=>(f.categories||[]).includes('Inactive');
 
+// "Needs Review": the record is teaching this AY, but its ONLY category
+// membership is Inactive and/or Emeriti — i.e. the roster status says they're
+// not active faculty, yet the schedule has them assigned. Any other category
+// present (Primary, Courtesy, etc.) means the Inactive/Emeriti tag is
+// deliberate alongside a real role, so no flag. Uncategorized (no rows at
+// all) is a different problem and isn't flagged here either.
+function needsReview(f){
+  const cats=f.categories||[];
+  if(!cats.length)return false;
+  if(cats.some(c=>c!=='Inactive'&&c!=='Emeriti'))return false;
+  return (TEACHING[f.id]||[]).some(o=>{const t=TERM_MAP[o.term];return t&&t.academic_year===CURRENT_AY;});
+}
+
 // Employer bucket: OHSU/PSU are exact (case/whitespace-insensitive) matches;
 // "Other" is any non-blank value that isn't OHSU or PSU; blank matches neither.
 function employerBucket(f){
@@ -810,7 +824,7 @@ function renderDir(){
   $('dir-tb').innerHTML=rows.map(f=>{
     const n=(TEACHING[f.id]||[]).length;
     return `<tr class="clickable" data-id="${esc(f.id)}">
-      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${cephSup(f)}${(WEBPROF[f.id]&&WEBPROF[f.id].is_published)?` <span class="pubdot" title="Published profile">●</span>`:''}${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}</td>
+      <td><span class="nm">${esc(f.last_name||'')}${f.first_name?', '+esc(f.first_name):''}</span>${cephSup(f)}${(WEBPROF[f.id]&&WEBPROF[f.id].is_published)?` <span class="pubdot" title="Published profile">●</span>`:''}${f.is_program_director?` <span class="chip role" title="Program Director${f.program_director_detail?': '+esc(f.program_director_detail):''}">PD</span>`:''}${f.is_administrator?` <span class="chip role" title="Administrator${f.administrator_detail?': '+esc(f.administrator_detail):''}">Admin</span>`:''}${(TIER!=='public'&&needsReview(f))?` <span class="chip review" title="Teaching this AY but categorized only as Inactive and/or Emeriti">Needs Review</span>`:''}</td>
       <td>${esc(f.sph_unit||'')||'<span class="muted">—</span>'}</td>
       ${TIER!=='public'?`<td>${esc(f.rank||'')||'<span class="muted">—</span>'}</td>
       <td>${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')||'<span class="muted">—</span>'}</td>
@@ -975,7 +989,7 @@ function renderProf(id){
       ${photo?`<img class="pphoto" id="prof-photo" src="${esc(wp.photo_url)}" alt="${esc(full(f))}">`:''}
     </div>
     <div>
-      <h2>${esc(full(f))}${N(f.pronouns)?`<span class="pron">(${esc(f.pronouns)})</span>`:''}</h2>
+      <h2>${esc(full(f))}${N(f.pronouns)?`<span class="pron">(${esc(f.pronouns)})</span>`:''}${(TIER!=='public'&&needsReview(f))?` <span class="chip review" title="Teaching this AY but categorized only as Inactive and/or Emeriti">Needs Review</span>`:''}</h2>
       <div class="prole">${esc(roleLine)}</div>
       <div class="pcats">${(f.categories||[]).map(c=>`<span class="chip">${esc(c)}</span>`).join('')}</div>
       ${roleBadges(f)}
