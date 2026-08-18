@@ -511,6 +511,9 @@ function initSupabase(){
    so it cannot leak into a public profile. */
 let TERM_MAP={};      // code → {label, academic_year, sort_order}
 let AY_ORDER=[];      // academic years, newest FIRST (current year on top)
+let CURRENT_AY='';    // admin-designated "current" AY, set from the scheduling app's
+                       // Terms & Academic Years tool (app_lists key 'currentAY').
+                       // Falls back to AY_ORDER[0] (newest) when unset or stale.
 // The nine category sheets from the master workbook. Data-driven at render time,
 // but this seeds the edit modal so a new category can't be created by typo.
 const CATEGORIES=['Primary','NonPaidSecondary','NonPaidAffiliate','Courtesy',
@@ -609,7 +612,7 @@ async function loadData(){
   // there comes along. The base tables still carry no anon grant — an
   // unpublished biography never reaches an anonymous browser.
   const pfx=TIER==='public'?'_public':'';
-  const [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]=await Promise.all([
+  const [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR,curAyR]=await Promise.all([
     paginate(()=> TIER==='admin'
       ? sb.from('faculty').select('*').eq('is_placeholder',false)
       : sb.from(src).select('*')),
@@ -629,7 +632,12 @@ async function loadData(){
     // ticking Published. This narrow two-column view is the only path that
     // carries it for an unpublished profile — cephOf() prefers the full
     // web-profile row when one is present and falls back to here.
-    paginate(()=> sb.from('faculty_ceph_public').select('faculty_id,ceph_flag'))
+    paginate(()=> sb.from('faculty_ceph_public').select('faculty_id,ceph_flag')),
+    // Admin-designated "current" AY, set from the scheduling app's Terms &
+    // Academic Years tool. Best-effort: an unreadable/missing row just means
+    // no designation yet, not a load failure, so its error isn't in the
+    // throw-check below.
+    sb.from('app_lists').select('items').eq('list_key','currentAY').maybeSingle()
   ]);
   for(const r of [fR,cR,oR,catR,tR,wpR,edR,rsR,awR,cphR]){
     if(r.error){setLM('');throw r.error;}
@@ -638,6 +646,10 @@ async function loadData(){
   TERM_MAP={};
   (tR.data||[]).forEach(t=>{TERM_MAP[t.code]=t;});
   AY_ORDER=[...new Set((tR.data||[]).map(t=>t.academic_year))].sort().reverse();
+  {
+    const override=(!curAyR.error&&curAyR.data&&Array.isArray(curAyR.data.items))?curAyR.data.items[0]:'';
+    CURRENT_AY=(override&&AY_ORDER.includes(override))?override:(AY_ORDER[0]||'');
+  }
 
   FAC=(fR.data||[]);
   if(TIER==='admin'){
@@ -765,7 +777,7 @@ function filtered(){
     if(cat&&!(f.categories||[]).includes(cat))return false;
     if(unit&&f.sph_unit!==unit)return false;
     if(employer&&employerBucket(f)!==employer)return false;
-    if(teachOnly&&!(TEACHING[f.id]||[]).length)return false;
+    if(teachOnly&&!(TEACHING[f.id]||[]).some(o=>{const t=TERM_MAP[o.term];return t&&t.academic_year===CURRENT_AY;}))return false;
     if(pub==='pub'  &&!(WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
     if(pub==='draft'&& (WEBPROF[f.id]&&WEBPROF[f.id].is_published))return false;
     if(ceph&&(cephOf(f)||'none')!==ceph)return false;
@@ -1034,7 +1046,7 @@ function renderProf(id){
     </div></div>`;
   }
 
-  /* teaching — AY 26-27, live from the scheduling app */
+  /* teaching — live from the scheduling app, all years shown (grouped) */
   h+=`<div class="card"><h3>Teaching</h3>${teachHTML(f.id)}</div>`;
 
   /* admin-only sections */

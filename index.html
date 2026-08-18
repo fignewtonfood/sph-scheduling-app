@@ -1074,6 +1074,9 @@ function initSupabase(){
 let TERM_ROWS=[];        // raw rows from `terms`, all AYs the user may see
 let AYS=[];              // distinct academic years, newest last
 let activeAY='';         // the AY currently displayed
+let CURRENT_AY='';       // admin-designated "current" AY (app_lists key 'currentAY'),
+                          // e.g. what "Teaching this year" means to the faculty app.
+                          // Falls back to newest-in-AYS when unset or stale.
 let TERMS=[];            // term codes in activeAY, chronological
 let TL={};               // code → label
 let TO={};               // code → sort index
@@ -1577,14 +1580,29 @@ function handleOfferingDeepLink(){
    is_pd_visible, admins get everything. So an unpublished term is absent from
    the payload, not merely hidden — the app never has to filter it out itself. */
 async function loadTerms(){
-  const {data,error}=await sb.from('terms')
-    .select('code,academic_year,label,sort_order,is_public,is_pd_visible,is_pd_editable')
-    .order('academic_year').order('sort_order');
+  const [{data,error},cur]=await Promise.all([
+    sb.from('terms')
+      .select('code,academic_year,label,sort_order,is_public,is_pd_visible,is_pd_editable')
+      .order('academic_year').order('sort_order'),
+    sb.from('app_lists').select('items').eq('list_key','currentAY').maybeSingle()
+  ]);
   if(error)throw error;
   TERM_ROWS=data||[];
   AYS=[...new Set(TERM_ROWS.map(t=>t.academic_year))].sort();
-  if(!AYS.includes(activeAY))activeAY=AYS[AYS.length-1]||'';   // default: newest AY
+  // cur.error is swallowed (best-effort): an unreadable/missing override row
+  // just means "no designation yet", not a load failure.
+  const override=(!cur.error&&cur.data&&Array.isArray(cur.data.items))?cur.data.items[0]:'';
+  CURRENT_AY=(override&&AYS.includes(override))?override:(AYS[AYS.length-1]||'');
+  if(!AYS.includes(activeAY))activeAY=CURRENT_AY||AYS[AYS.length-1]||'';   // default: designated current AY, else newest
   applyAY();
+}
+async function saveCurrentAY(ay){
+  if(!AYS.includes(ay))return;
+  const ok=await sbSave(
+    sb.from('app_lists').upsert({list_key:'currentAY',items:[ay],updated_at:new Date().toISOString()}),
+    `● Current AY set to ${ay}`
+  );
+  if(ok){CURRENT_AY=ay;renderTermRows();}
 }
 function applyAY(){
   const rows=TERM_ROWS.filter(t=>t.academic_year===activeAY)
@@ -1685,10 +1703,14 @@ function renderTermRows(){
   ays.forEach(ay=>{
     const rows=byAY[ay].sort((a,b)=>a.sort_order-b.sort_order);
     const offs=DB.offerings.filter(o=>rows.some(r=>r.code===o.term)).length;
+    const isCur=ay===CURRENT_AY;
     h+=`<div style="margin-bottom:18px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
         <strong style="color:var(--navytx);font-size:14px">${esc(ay)}</strong>
         <span style="font-size:12px;color:var(--dgray)">${offs} offering${offs===1?'':'s'}</span>
+        ${isCur
+          ?`<span style="background:var(--ltblue);color:var(--navytx);font-size:11px;padding:2px 8px;border-radius:10px" title="This is what the faculty app's 'Teaching this year' filter uses">★ Current AY</span>`
+          :`<button class="btn btn-s ay-cur" data-ay="${esc(ay)}" style="font-size:11px" title="Designate this as the current AY (used by the faculty app's 'Teaching this year' filter)">Set as Current</button>`}
         <button class="btn btn-s ay-del" data-ay="${esc(ay)}" style="margin-left:auto;font-size:11px;color:var(--red);border-color:var(--red)">Delete year</button>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1726,6 +1748,9 @@ function renderTermRows(){
   });
   document.querySelectorAll('#tm-body .ay-del').forEach(b=>{
     b.addEventListener('click',()=>delAY(b.dataset.ay));
+  });
+  document.querySelectorAll('#tm-body .ay-cur').forEach(b=>{
+    b.addEventListener('click',()=>saveCurrentAY(b.dataset.ay));
   });
 }
 
