@@ -1627,7 +1627,7 @@ function rebuildTermUI(){
   // Academic-year picker (only meaningful once a second AY exists)
   const ay=$('ay-sel');
   if(ay){
-    ay.innerHTML=AYS.map(a=>`<option value="${esc(a)}"${a===activeAY?' selected':''}>${esc(a)}</option>`).join('');
+    ay.innerHTML=AYS.slice().reverse().map(a=>`<option value="${esc(a)}"${a===activeAY?' selected':''}>${esc(a)}</option>`).join('');
     ay.style.display=AYS.length>1?'':'none';
   }
   const sub=$('hdr-sub');
@@ -1795,7 +1795,7 @@ function deriveTerms(ay){
 function renderNewAY(){
   const cs=$('ny-copy');
   cs.innerHTML='<option value="">Blank year (no offerings)</option>'+
-    AYS.map(a=>`<option value="${esc(a)}">Copy offerings from ${esc(a)}</option>`).join('');
+    AYS.slice().reverse().map(a=>`<option value="${esc(a)}">Copy offerings from ${esc(a)}</option>`).join('');
   $('ny-terms').innerHTML='';
   $('ny-note').textContent='';
   $('ny-ay').oninput=refreshNYTerms;
