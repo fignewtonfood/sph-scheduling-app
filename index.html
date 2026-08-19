@@ -2310,7 +2310,8 @@ function generateOnCampusReport(){
 const PS={termsPopulated:false};
 function psPopulateTerms(){
   if(PS.termsPopulated||!TERM_ROWS||!TERM_ROWS.length)return;
-  const opts=TERM_ROWS.map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
+  const opts=TERM_ROWS.slice().reverse()
+    .map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
   $('ps-term').insertAdjacentHTML('beforeend',opts);
   PS.termsPopulated=true;
 }
