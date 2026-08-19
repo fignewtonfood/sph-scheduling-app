@@ -437,7 +437,7 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
     <button data-view="chtool"      id="nav-chtool"      class="auth-only">📋 CHTool</button>
     <button data-view="catalog"     id="nav-catalog">📚 Catalog</button>
     <button data-view="instructors" id="nav-instructors" class="auth-only">👤 Instructors</button>
-    <button data-view="reporting"   id="nav-reporting"   class="admin-only admin-strict" style="display:none">🗂 Reporting</button>
+    <button data-view="reporting"   id="nav-reporting"   class="admin-only" style="display:none">🗂 Reporting</button>
     <button id="btn-admin-toggle">🔐 Admin</button>
     <div class="nav-dd" id="admin-tools-dd">
       <button id="btn-admin-tools" class="admin-only" style="display:none">🛠 Admin Tools ▾</button>
@@ -556,8 +556,8 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
     <!-- REPORTING (Term Draft + Term Audit) -->
     <div class="view" id="view-reporting">
       <div class="rep-subnav">
-        <button class="rep-sub-btn active" data-sub="termdraft" id="repsub-btn-termdraft">🗂 Term Draft</button>
-        <button class="rep-sub-btn" data-sub="termaudit" id="repsub-btn-termaudit">🔍 Term Audit</button>
+        <button class="rep-sub-btn active admin-strict" data-sub="termdraft" id="repsub-btn-termdraft" style="display:none">🗂 Term Draft</button>
+        <button class="rep-sub-btn admin-strict" data-sub="termaudit" id="repsub-btn-termaudit" style="display:none">🔍 Term Audit</button>
         <button class="rep-sub-btn" data-sub="pubsched" id="repsub-btn-pubsched">🖨 Public Schedule</button>
       </div>
 
@@ -1533,10 +1533,11 @@ function switchView(name){
   // Hard guard, not just a hidden nav button: CHTool and Instructors are
   // unreachable while signed out, however the call arrives.
   if(!signedIn&&(name==='chtool'||name==='instructors'))name='schedule';
-  // Reporting (Term Draft + Term Audit) is admin-only. `isAdmin` is false for
-  // PDs and viewers alike, so this covers both — the hidden nav button is
-  // presentation, this is the gate.
-  if(name==='reporting'&&!(signedIn&&isAdmin))name='schedule';
+  // Reporting is open to PDs now too, but only for Public Schedule — Term
+  // Draft and Term Audit stay admin-only, enforced again below in
+  // switchReportingSub/renderReporting since the sub-nav buttons are only a
+  // presentation-layer hide, not the real gate.
+  if(name==='reporting'&&!(signedIn&&(isAdmin||isPD)))name='schedule';
   // Leaving a course page by clicking a tab: strip the param so a refresh
   // doesn't drop the person back onto the course they just left.
   const _u=new URL(window.location);
@@ -5478,6 +5479,8 @@ function tdbSuggestAll(offerings){
 /* ── Reporting shell (Term Draft + Term Audit sub-tabs) ──────── */
 let repActiveSub='termdraft';
 function switchReportingSub(name){
+  // Real gate, not just the hidden button: Term Draft/Audit are admin-only.
+  if(!isAdmin&&(name==='termdraft'||name==='termaudit'))name='pubsched';
   repActiveSub=name;
   document.querySelectorAll('.rep-sub').forEach(v=>v.classList.remove('active'));
   document.querySelectorAll('.rep-sub-btn').forEach(b=>b.classList.remove('active'));
@@ -5486,6 +5489,7 @@ function switchReportingSub(name){
   renderReporting();
 }
 function renderReporting(){
+  if(!isAdmin&&(repActiveSub==='termdraft'||repActiveSub==='termaudit')){switchReportingSub('pubsched');return;}
   if(repActiveSub==='termaudit')renderTermAudit();
   else if(repActiveSub==='pubsched')renderPubSched();
   else renderTdb();
