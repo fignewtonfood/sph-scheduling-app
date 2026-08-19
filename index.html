@@ -14,6 +14,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 /* ═══ TOKENS ═════════════════════════════════════════════════
    Every colour in the app resolves through one of these. The dark set below
@@ -557,6 +558,7 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
       <div class="rep-subnav">
         <button class="rep-sub-btn active" data-sub="termdraft" id="repsub-btn-termdraft">🗂 Term Draft</button>
         <button class="rep-sub-btn" data-sub="termaudit" id="repsub-btn-termaudit">🔍 Term Audit</button>
+        <button class="rep-sub-btn" data-sub="pubsched" id="repsub-btn-pubsched">🖨 Public Schedule</button>
       </div>
 
     <!-- TERM DRAFT BUILDER -->
@@ -703,6 +705,36 @@ html[data-theme="dark"] #ab-email{background:var(--surface)!important;color:var(
             <div id="ta-unroomed-list"></div>
           </section>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- PUBLIC SCHEDULE EXPORT -->
+    <div class="rep-sub" id="repsub-pubsched">
+      <div class="toolbar">
+        <label class="tdb-lbl">Term
+          <select id="ps-term"><option value="">— pick a term —</option></select>
+        </label>
+        <label class="tdb-lbl">Level
+          <select id="ps-level">
+            <option value="UG">Undergraduate</option>
+            <option value="GR">Graduate</option>
+          </select>
+        </label>
+        <div class="tb-sp"></div>
+        <span class="tb-hint">Read-only — builds a .xlsx from the current schedule, writes nothing</span>
+      </div>
+
+      <div class="tdb-scroll">
+        <div class="tdb-wrap">
+          <section class="tdb-card">
+            <h3>Generate the public posting sheet</h3>
+            <p class="tdb-sub">Builds the "Course Prefix / Course Number / Course Title / Cr. / Course Format / Days / Time / Restrictions" sheet in the same layout used for posting to the web, for the term and level selected above. Undergraduate and graduate/both-level courses with a dual course number are split or combined per the school's posting convention; courses with no offering in the selected term are omitted.</p>
+            <div style="margin-top:14px;">
+              <button class="btn btn-p" id="ps-generate-btn" disabled>Generate .xlsx</button>
+            </div>
+            <div id="ps-summary" style="margin-top:16px;"></div>
+          </section>
         </div>
       </div>
     </div>
@@ -1589,7 +1621,7 @@ function handleOfferingDeepLink(){
 async function loadTerms(){
   const [{data,error},cur]=await Promise.all([
     sb.from('terms')
-      .select('code,academic_year,label,sort_order,is_public,is_pd_visible,is_pd_editable')
+      .select('code,academic_year,label,sort_order,is_public,is_pd_visible,is_pd_editable,start_date,end_date')
       .order('academic_year').order('sort_order'),
     sb.from('app_lists').select('items').eq('list_key','currentAY').maybeSingle()
   ]);
@@ -1726,6 +1758,8 @@ function renderTermRows(){
           <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Anonymous visitors can see this term">Public</th>
           <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Program Directors can see this term">PD sees</th>
           <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px" title="Program Directors can edit offerings in this term">PD edits</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px">Start date</th>
+          <th style="padding:6px 8px;background:var(--ltblue);color:var(--navytx);font-size:11px">End date</th>
         </tr></thead><tbody>`;
     rows.forEach(t=>{
       h+=`<tr>
@@ -1733,6 +1767,8 @@ function renderTermRows(){
         <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_public"${t.is_public?' checked':''}></td>
         <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_visible"${t.is_pd_visible?' checked':''}></td>
         <td style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="checkbox" class="tf" data-code="${esc(t.code)}" data-f="is_pd_editable"${t.is_pd_editable?' checked':''}></td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="date" class="tf-date" data-code="${esc(t.code)}" data-f="start_date" value="${esc(t.start_date||'')}" style="font-size:12px;width:100%"></td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--rowline)"><input type="date" class="tf-date" data-code="${esc(t.code)}" data-f="end_date" value="${esc(t.end_date||'')}" style="font-size:12px;width:100%"></td>
       </tr>`;
     });
     h+=`</tbody></table></div>`;
@@ -1768,11 +1804,16 @@ async function saveTermFlags(){
     document.querySelectorAll('#tm-body .tf').forEach(cb=>{
       (byCode[cb.dataset.code]=byCode[cb.dataset.code]||{})[cb.dataset.f]=cb.checked;
     });
+    document.querySelectorAll('#tm-body .tf-date').forEach(inp=>{
+      (byCode[inp.dataset.code]=byCode[inp.dataset.code]||{})[inp.dataset.f]=inp.value||null;
+    });
     setTM('Saving…');
     let changed=0;
     for(const [code,flags] of Object.entries(byCode)){
       const cur=termRow(code);
-      if(cur&&['is_public','is_pd_visible','is_pd_editable'].every(f=>!!cur[f]===!!flags[f]))continue;
+      const boolSame=cur?['is_public','is_pd_visible','is_pd_editable'].every(f=>!(f in flags)||!!cur[f]===!!flags[f]):false;
+      const dateSame=cur?['start_date','end_date'].every(f=>!(f in flags)||(cur[f]||null)===(flags[f]||null)):false;
+      if(cur&&boolSame&&dateSame)continue;
       const {error}=await sb.from('terms').update(flags).eq('code',code);
       if(error){setTM(error.message,true);return;}
       changed++;
@@ -2249,6 +2290,240 @@ function generateOnCampusReport(){
   if(!w){ const a=document.createElement('a');a.href=url;a.download='OnCampus_'+term+'.html';a.click(); setSS('Report downloaded (popup was blocked)'); }
   else setSS('● On-Campus report opened');
 }
+
+/* ─── PUBLIC SCHEDULE EXPORT ────────────────────────────────────
+   Builds the "posting to web" .xlsx — Course Prefix / Number / Title /
+   Cr. / Course Format / Days / Time / Restrictions — grouped under
+   bold green prefix headers, matching the school's existing UG/GR
+   posting workbooks. Pure read: nothing here writes to the database.
+
+   Level-split rules (courses table `grugb`, confirmed with Tim):
+   - grugb 'UG' + number2 set  → TWO rows, one per number, UG sheet only
+   - grugb 'GR' + number2 set  → ONE row "number / number2", GR sheet only
+   - grugb 'B'                 → one row each side: number on UG,
+                                  number2 (else number) on GR
+   - no number2                → one row, on whichever sheet(s) grugb covers
+   Sections (child course rows) are separate course records that print
+   under the same course number: original (blank section) first, then
+   sections alphabetically — each with all of its own offerings, in the
+   order they load from Supabase. */
+const PS={termsPopulated:false};
+function psPopulateTerms(){
+  if(PS.termsPopulated||!TERM_ROWS||!TERM_ROWS.length)return;
+  const opts=TERM_ROWS.map(t=>`<option value="${esc(t.code)}">${esc(t.label||t.code)}</option>`).join('');
+  $('ps-term').insertAdjacentHTML('beforeend',opts);
+  PS.termsPopulated=true;
+}
+function renderPubSched(){
+  psPopulateTerms();
+  $('ps-generate-btn').disabled=!val('ps-term');
+}
+const PS_MODALITY={
+  'In-Person':'In-Person','Hybrid':'Hybrid',
+  'Online (async)':'Online, Asynchronous','Online (sync)':'Online, Synchronous',
+  'Dept Arranged':'Dept. Arranged','By Arrangement':'Dept. Arranged'
+};
+const psModalityText=m=>PS_MODALITY[String(m||'').trim()]||String(m||'').trim();
+const psNumSort=s=>{const m=String(s||'').match(/\d+/);return m?parseInt(m[0],10):999999;};
+/* 'YYYY-MM-DD' (Postgres date) → "9/28/26" — no leading zeros, 2-digit year.
+   Parsed as local calendar date, not UTC, so a bare date column never
+   shifts a day depending on the browser's timezone. */
+function psFmtDate(d){
+  if(!d)return '';
+  const m=String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m)return '';
+  const [,y,mo,da]=m;
+  return `${parseInt(mo,10)}/${parseInt(da,10)}/${y.slice(2)}`;
+}
+function psFmtDateRange(start,end){
+  const s=psFmtDate(start), e=psFmtDate(end);
+  return (s&&e)?`${s} - ${e}`:(s||e||'');
+}
+function psRestrictionText(course,off){
+  // Confirmed order: restrictPsu first, then "Instructor Permission
+  // Required" — restrictOhsu, psuText and adminNotes are never printed.
+  const parts=[];
+  const rp=String(off.restrictPsu||'').trim();
+  if(rp)parts.push(rp);
+  if(String(course.permission||'').trim()==='Yes')parts.push('Instructor Permission Required');
+  return parts.join('\n');
+}
+function psDisplayNumbers(course,level){
+  const g=course.grugb||'GR', n2=String(course.number2||'').trim();
+  if(level==='UG'){
+    if(g==='UG')return n2?[course.number,n2]:[course.number];
+    if(g==='B')return [course.number];
+    return [];
+  }else{
+    if(g==='GR')return [n2?(course.number+' / '+n2):course.number];
+    if(g==='B')return [n2||course.number];
+    return [];
+  }
+}
+/* → {prefix: [{prefix,displayNum,numSort,course,offering}, ...]} sorted
+     numerically within each prefix, prefixes to be sorted by caller. */
+function psBuildRows(term,level){
+  const byBase=new Map();
+  DB.courses.filter(c=>!(c.discontinued===true||c.discontinued==='Yes')).forEach(c=>{
+    const baseId=c.parentId||c.id;
+    if(!byBase.has(baseId))byBase.set(baseId,[]);
+    byBase.get(baseId).push(c);
+  });
+  const out={};
+  byBase.forEach(courses=>{
+    courses.sort((a,b)=>cmpSection(a.section,b.section));   // original, then sections A→Z
+    courses.forEach(course=>{
+      const nums=psDisplayNumbers(course,level);
+      if(!nums.length)return;
+      const offerings=DB.offerings.filter(o=>o.courseId===course.id&&o.term===term);
+      if(!offerings.length)return;
+      nums.forEach(displayNum=>{
+        offerings.forEach(off=>{
+          (out[course.prefix]=out[course.prefix]||[]).push(
+            {prefix:course.prefix,displayNum,numSort:psNumSort(displayNum),course,offering:off});
+        });
+      });
+    });
+  });
+  Object.keys(out).forEach(pfx=>{
+    out[pfx].sort((a,b)=>a.numSort-b.numSort||
+      String(a.displayNum).localeCompare(String(b.displayNum),undefined,{numeric:true,sensitivity:'base'}));
+  });
+  return out;
+}
+
+const PS_LEGEND={
+  UG:{title:'Undergraduate',
+    defs:[
+      'ONLINE, ASYNCHRONOUS: Online class with no scheduled meeting times (asynchronous format)',
+      'ONLINE, SYNC:  Online class that meets remotely via Zoom or Webex during the scheduled meeting times listed',
+      'IN-PERSON:  Class meets in person, on campus, during the scheduled meeting time(s)',
+      'HYBRID:  Class meets in person, on campus, during the scheduled meeting time(s), with additional online requirements',
+      'DEPARTMENT ARRANGED:  Meeting times to be agreed upon by student and instructor/department'],
+    abbr:['M = Monday    T = Tuesday    W = Wednesday    R = Thursday    F = Friday   S = Saturday    U = Sunday',
+      'Asynch = Asynchronous    Synch = Synchronous    TBD = to be determined     NA= not applicable']},
+  GR:{title:'Graduate',
+    defs:[
+      'ONLINE, ASYNCHRONOUS: Online class with no scheduled meeting times (asynchronous format)',
+      'ONLINE, SYNCHRONOUS: Online class that meets remotely via Zoom or Webex during the scheduled meeting times listed',
+      'IN‐PERSON: Class meets in person, on campus, during the scheduled meeting time(s)',
+      'HYBRID: Class meets in person, on campus, during the scheduled meeting time(s), with additional online requirements',
+      'DEPARTMENT ARRANGED: Meeting times to be agreed upon by student and instructor/department',
+      'RESTRICTED: Registration is restricted to the populations indicated for the entire registration period'],
+    abbr:['M = Monday T = Tuesday W = Wednesday R = Thursday F = Friday',
+      'Asynch = Asynchronous Synch = Synchronous TBA = to be arranged TBD = to be determined NA= not applicable']}
+};
+
+async function psGenerate(){
+  const term=val('ps-term'), level=val('ps-level');
+  if(!term){alert('Pick a term first.');return;}
+  const termLabel=TL[term]||term;
+  const grouped=psBuildRows(term,level);
+  const prefixes=Object.keys(grouped).sort();
+  const totalRows=prefixes.reduce((n,p)=>n+grouped[p].length,0);
+  if(!totalRows){$('ps-summary').innerHTML=`<div class="fhint">No ${level==='UG'?'undergraduate':'graduate'} offerings found for ${esc(termLabel)}.</div>`;return;}
+
+  const wb=new ExcelJS.Workbook();
+  const ws=wb.addWorksheet((level==='UG'?'UG ':'GR ')+termLabel,{views:[{state:'frozen',ySplit:0}]}); // ySplit set below once header row is known
+  ws.columns=[{width:7.14},{width:8.57},{width:33.43},{width:5.86},{width:8},{width:10},{width:15.57},{width:26}];
+
+  const FONT='Lato';
+  const green={type:'pattern',pattern:'solid',fgColor:{argb:'FF00845E'}};
+  const thin={style:'thin'};
+  const box={top:thin,bottom:thin,left:thin,right:thin};
+  const centerWrap={horizontal:'center',vertical:'center',wrapText:true};
+
+  let r=1;
+  ws.mergeCells(r,1,r,8);
+  ws.getCell(r,1).value=`School of Public Health ${esc0(termLabel)} ${level==='UG'?'Undergraduate':'Graduate'} Course Schedule`;
+  ws.getCell(r,1).font={name:FONT,size:12,bold:true};
+  ws.getCell(r,1).alignment={horizontal:'center',vertical:'center'};
+  ws.getRow(r).height=22; r++;
+
+  const tRow=termRow(term);
+  const tDates=psFmtDateRange(tRow&&tRow.start_date,tRow&&tRow.end_date);
+  if(tDates){
+    ws.mergeCells(r,1,r,8);
+    ws.getCell(r,1).value=`Term Dates: ${tDates}`;
+    ws.getCell(r,1).font={name:FONT,size:9,bold:true};
+    ws.getCell(r,1).alignment={horizontal:'center',vertical:'center'}; r++;
+  }
+
+  ws.mergeCells(r,1,r,8);
+  ws.getCell(r,1).value=`Last modified: ${new Date().toLocaleDateString('en-US')}`;
+  ws.getCell(r,1).font={name:FONT,size:9,bold:true};
+  ws.getCell(r,1).alignment={horizontal:'center',vertical:'center'}; r++;
+
+  const legend=PS_LEGEND[level]||PS_LEGEND.GR;
+  ws.getCell(r,1).value='DEFINITIONS';ws.getCell(r,1).font={name:FONT,size:10,bold:true};r++;
+  legend.defs.forEach(line=>{ws.getCell(r,1).value=line;ws.getCell(r,1).font={name:FONT,size:9};r++;});
+  ws.getCell(r,1).value='ABBREVIATIONS';ws.getCell(r,1).font={name:FONT,size:10,bold:true};r++;
+  legend.abbr.forEach(line=>{ws.getCell(r,1).value=line;ws.getCell(r,1).font={name:FONT,size:9};r++;});
+
+  const headerRow=r;
+  const headers=['Course Prefix','Course Number','Course Title','Cr.','Course Format','Days','Time','Restrictions/ Notes'];
+  headers.forEach((h,i)=>{
+    const c=ws.getCell(r,i+1);
+    c.value=h;c.font={name:FONT,size:8,bold:true};c.alignment=centerWrap;c.border=box;
+  });
+  ws.getRow(r).height=23.25; r++;
+  ws.views=[{state:'frozen',ySplit:headerRow}];
+
+  prefixes.forEach(pfx=>{
+    for(let col=1;col<=8;col++){
+      const c=ws.getCell(r,col);
+      c.fill=green;c.font={name:FONT,size:8,bold:true};c.border=box;
+    }
+    ws.getCell(r,1).value=`${pfx} Prefix Classes:`; r++;
+
+    grouped[pfx].forEach(row=>{
+      const {course,offering}=row;
+      const format=psModalityText(offering.modality);
+      const hasMeeting=!!(String(offering.days||'').trim()||String(offering.time||'').trim());
+      const restr=psRestrictionText(course,offering);
+
+      ws.getCell(r,1).value=course.prefix;
+      ws.getCell(r,2).value=/^\d+$/.test(String(row.displayNum).trim())?parseInt(row.displayNum,10):row.displayNum;
+      ws.getCell(r,3).value=course.title;
+      ws.getCell(r,4).value=course.credits;
+      if(hasMeeting){
+        ws.getCell(r,5).value=format;
+        ws.getCell(r,6).value=String(offering.days||'').trim();
+        ws.getCell(r,7).value=String(offering.time||'').trim();
+      }else{
+        ws.mergeCells(r,5,r,7);
+        ws.getCell(r,5).value=format;
+      }
+      ws.getCell(r,8).value=restr;
+
+      const ALIGN={
+        1:{wrapText:true,vertical:'center'},                       // Prefix
+        2:{horizontal:'center',wrapText:true,vertical:'center'},   // Number
+        3:{horizontal:'left',wrapText:true,vertical:'top'},        // Title
+        4:{horizontal:'center',wrapText:true,vertical:'center'},   // Cr.
+        5:{horizontal:'center',vertical:'center'},                 // Format
+        6:{horizontal:'center',wrapText:true,vertical:'center'},   // Days
+        7:{horizontal:'center',wrapText:true,vertical:'center'},   // Time
+        8:{wrapText:true,vertical:'center'}                        // Restrictions/Notes
+      };
+      for(let col=1;col<=8;col++){
+        const c=ws.getCell(r,col);
+        c.font={name:FONT,size:8};c.border=box;c.alignment=ALIGN[col];
+      }
+      r++;
+    });
+  });
+
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob);
+  const fname=`SPH_${level}_${term}_Public_Schedule.xlsx`;
+  const a=document.createElement('a');a.href=url;a.download=fname;a.click();
+  URL.revokeObjectURL(url);
+  $('ps-summary').innerHTML=`<div class="fhint">● ${totalRows} row${totalRows===1?'':'s'} across ${prefixes.length} prefix${prefixes.length===1?'':'es'} — ${esc(fname)} downloaded.</div>`;
+  setSS('● Public schedule generated');
+}
+const esc0=s=>String(s??'');
 
 /* ─── CHTOOL ────────────────────────────────────────────────── */
 function renderCht(){
@@ -3697,6 +3972,8 @@ function wireEvents(){
   $('g-level').addEventListener('change',renderGantt);
   $('gantt-wrap').addEventListener('click',e=>{const b=e.target.closest('.gbar');if(b&&canEdit())openOM(b.dataset.id);});
   $('btn-oc-report').addEventListener('click',generateOnCampusReport);
+  $('ps-term').addEventListener('change',()=>{$('ps-generate-btn').disabled=!val('ps-term');});
+  $('ps-generate-btn').addEventListener('click',psGenerate);
   // CHTool
   $('c-cat').addEventListener('change',renderCht);
   $('c-q').addEventListener('input',renderCht);
@@ -5208,7 +5485,9 @@ function switchReportingSub(name){
   renderReporting();
 }
 function renderReporting(){
-  if(repActiveSub==='termaudit')renderTermAudit(); else renderTdb();
+  if(repActiveSub==='termaudit')renderTermAudit();
+  else if(repActiveSub==='pubsched')renderPubSched();
+  else renderTdb();
 }
 function wireReportingEvents(){
   document.querySelectorAll('.rep-sub-btn').forEach(b=>
