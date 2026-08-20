@@ -309,7 +309,7 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
     <div class="nav-dd admin-only" id="admin-tools-dd" style="display:none">
       <button id="btn-admin-tools">🛠 Admin Tools ▾</button>
       <div class="nav-dd-menu" id="admin-tools-menu">
-        <button id="btn-req-queue">📝 Edit Requests <span class="req-badge" id="req-badge-dd"></span></button>
+        <button id="btn-req-queue" title="Reviewing does not apply the change — you still make the edit yourself">📝 Edit Requests <span class="req-badge" id="req-badge-dd"></span></button>
       </div>
     </div>
     <span id="save-status">Ready</span>
@@ -518,9 +518,10 @@ html[data-theme="dark"] .mc{box-shadow:0 20px 50px rgba(0,0,0,.6)}
   <div class="mc">
     <div class="mh"><h3>Faculty Edit Requests</h3><button class="x" data-close="mo-reqq">×</button></div>
     <div class="mb">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dgray);margin-bottom:12px;cursor:pointer">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dgray);margin-bottom:8px;cursor:pointer">
         <input type="checkbox" id="reqq-showresolved" style="width:auto;flex:none"> Show resolved
       </label>
+      <div class="fhint" style="margin-bottom:12px">⚠ Make the actual change in the faculty record or profile first — "Mark Applied" only closes out the request, it doesn't write anything itself.</div>
       <div id="reqq-list"></div>
     </div>
     <div class="mf">
